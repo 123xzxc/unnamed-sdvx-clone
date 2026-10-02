@@ -1161,6 +1161,19 @@ bool Application::m_Init()
 
 	g_gameWindow->Show();
 
+#ifdef USC_IOS
+	/*
+		iOS hands out a single fullscreen window and reports it in points, while the
+		framebuffer is the native pixel buffer of the screen. Everything in the
+		engine works in framebuffer pixels, so the resolution is taken from the
+		window that was actually created instead of from what was requested above.
+	*/
+	g_resolution = g_gameWindow->GetWindowSize();
+	g_aspectRatio = (float)g_resolution.x / (float)g_resolution.y;
+	g_gameConfig.Set(GameConfigKeys::ScreenWidth, g_resolution.x);
+	g_gameConfig.Set(GameConfigKeys::ScreenHeight, g_resolution.y);
+#endif
+
 	g_gameWindow->OnKeyPressed.Add(this, &Application::m_OnKeyPressed);
 	g_gameWindow->OnKeyReleased.Add(this, &Application::m_OnKeyReleased);
 	g_gameWindow->OnResized.Add(this, &Application::m_OnWindowResized);

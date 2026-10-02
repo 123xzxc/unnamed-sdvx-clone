@@ -143,6 +143,7 @@ namespace cpr
 	inline Response Get(const Url&, const Header&) { return MakeUnavailableResponse(); }
 	inline Response Post(const Url&, const Body&) { return MakeUnavailableResponse(); }
 	inline Response Post(const Url&, const Body&, const Header&) { return MakeUnavailableResponse(); }
+	inline Response Post(const Url&, const Header&, const Body&) { return MakeUnavailableResponse(); }
 	inline Response Post(const Url&, const Header&, const Multipart&) { return MakeUnavailableResponse(); }
 	inline Response Post(const Url&, const Multipart&) { return MakeUnavailableResponse(); }
 
@@ -151,5 +152,6 @@ namespace cpr
 	inline AsyncResponse GetAsync(const Url&, const Header&, const Parameters&) { return AsyncResponse(MakeUnavailableResponse()); }
 	inline AsyncResponse PostAsync(const Url&, const Body&) { return AsyncResponse(MakeUnavailableResponse()); }
 	inline AsyncResponse PostAsync(const Url&, const Body&, const Header&) { return AsyncResponse(MakeUnavailableResponse()); }
+	inline AsyncResponse PostAsync(const Url&, const Header&, const Body&) { return AsyncResponse(MakeUnavailableResponse()); }
 	inline AsyncResponse PostAsync(const Url&, const Header&, const Multipart&) { return AsyncResponse(MakeUnavailableResponse()); }
 }

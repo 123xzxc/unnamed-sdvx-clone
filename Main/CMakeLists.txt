@@ -134,3 +134,17 @@ if(ZLIB_FOUND)
 endif()
 
 target_link_libraries(usc-game cc-common)
+
+if(USC_IOS)
+    # iOS platform layer (sandbox paths, on-screen touch controller), the
+    # application bundle properties and the game data folded into the bundle.
+    #
+    # This is added here instead of from the root CMakeLists.txt because it
+    # extends the usc-game target, and a target can only be modified from the
+    # directory that created it (CMake policies CMP0040/CMP0079).
+    #
+    # The binary directory has to be given explicitly because the source
+    # directory is not a subdirectory of this one.
+    add_subdirectory(${CMAKE_SOURCE_DIR}/platform/ios
+                     ${CMAKE_BINARY_DIR}/platform/ios)
+endif()

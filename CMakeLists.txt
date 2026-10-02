@@ -29,10 +29,12 @@ option(USE_SYSTEM_CPR "Use system CPR" OFF)
 # Dependencies come from vcpkg's arm64-ios / x64-ios triplets, the same way the
 # desktop builds use the host triplets.
 #
+# The option is declared before it is forced on below: option() replaces a normal
+# variable of the same name when policy CMP0077 is not set.
+option(USC_IOS "Build for iPadOS/iOS" OFF)
 if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     set(USC_IOS ON)
 endif()
-option(USC_IOS "Build for iPadOS/iOS" ${USC_IOS})
 
 if(USC_IOS)
     # The mobile build reuses the OpenGL ES renderer that already exists for
@@ -48,6 +50,13 @@ if(USC_IOS)
 endif()
 
 project(USC VERSION 0.6.0)
+if(USC_IOS)
+    # The platform layer is Objective-C++ and is compiled into the usc-game
+    # target, which Main/ creates, so the language has to be enabled here rather
+    # than only in the platform directory.
+    enable_language(OBJCXX)
+endif()
+
 if(WIN32 AND ${CMAKE_VERSION} VERSION_GREATER "3.12")
     cmake_policy(SET CMP0079 NEW)
 endif()
@@ -151,7 +160,13 @@ if(EMBEDDED)
     add_definitions(-DEMBEDDED)
 endif()
 
-OPTION(CRASHDUMP "Enable collecting crash dumps" ON)
+if(USC_IOS)
+    # The crash handler is implemented with breakpad, which is a Windows only
+    # dependency of the desktop build.
+    OPTION(CRASHDUMP "Enable collecting crash dumps" OFF)
+else()
+    OPTION(CRASHDUMP "Enable collecting crash dumps" ON)
+endif()
 if(CRASHDUMP)
     message("Enabling crash dumps")
     add_definitions(-DCRASHDUMP)
@@ -178,12 +193,12 @@ add_subdirectory(Beatmap)
 add_subdirectory(GUI)
 
 # Unit test projects
-if(USC_IOS)
-    # iOS platform layer, application bundle and bundled game data
-    add_subdirectory(platform/ios)
-else()
-    # Unit test projects (desktop only: they need a console and a writable
-    # working directory next to the binary).
+#
+# Desktop only: the tests need a console and a writable working directory next to
+# the binary. The iOS platform layer and the application bundle are added from
+# Main/CMakeLists.txt instead, because they extend the usc-game target and a
+# target may only be modified from the directory that created it.
+if(NOT USC_IOS)
     add_subdirectory(Tests)
     add_subdirectory(Tests.Shared)
     add_subdirectory(Tests.Game)
@@ -225,7 +240,11 @@ if(MSVC)
 
 endif(MSVC)
 
-install(TARGETS usc-game RUNTIME)
+# The iOS build produces an application bundle; it is packaged into an IPA by
+# platform/ios/scripts/build.sh instead of being installed.
+if(NOT USC_IOS)
+    install(TARGETS usc-game RUNTIME)
+endif()
 install(DIRECTORY bin/audio DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/unnamed-sdvx-clone)
 install(DIRECTORY bin/fonts DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/unnamed-sdvx-clone)
 install(DIRECTORY bin/LightPlugins DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/unnamed-sdvx-clone)

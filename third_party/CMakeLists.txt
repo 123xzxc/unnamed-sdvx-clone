@@ -29,7 +29,7 @@ elseif(USE_SYSTEM_CPR)
 else()
     add_subdirectory(cpr)
     target_include_directories(cpr PUBLIC ${CPR_INCLUDE_DIRS})
-endif(USE_SYSTEM_CPR)
+endif()
 
 #discord example program
 set(CLANG_FORMAT_SUFFIX "ignore") #try to disable clang formatter

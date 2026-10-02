@@ -9,8 +9,6 @@
 # The dependencies themselves (SDL2, freetype, libvorbis, libarchive, ...) come
 # from vcpkg's arm64-ios / x64-ios triplets; see platform/ios/README.md.
 
-enable_language(OBJCXX)
-
 set(USC_IOS_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(USC_IOS_SRC_DIR ${USC_IOS_DIR}/src)
 
@@ -50,7 +48,16 @@ set_target_properties(usc-game PROPERTIES
     XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
     XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "${CMAKE_OSX_DEPLOYMENT_TARGET}"
     XCODE_ATTRIBUTE_ENABLE_BITCODE "NO"
+
+    # The app is built unsigned: a re-signing tool (AltStore, Sideloadly, iOS App
+    # Signer, TrollStore) replaces the signature before it is installed, and the
+    # CI runner has no certificate anyway. To build a signed app, pass
+    # -DUSC_IOS_TEAM_ID=<team> and override these settings on the xcodebuild
+    # command line (CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY="iPhone Developer").
     XCODE_ATTRIBUTE_CODE_SIGN_STYLE "Automatic"
+    XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED "NO"
+    XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO"
+    XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY ""
     XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "${USC_IOS_TEAM_ID}"
     XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "${USC_IOS_BUNDLE_ID}"
     XCODE_ATTRIBUTE_GCC_C_LANGUAGE_STANDARD "c11"
@@ -97,6 +104,8 @@ set(USC_IOS_FRAMEWORKS
 foreach(framework ${USC_IOS_FRAMEWORKS})
     find_library(FRAMEWORK_${framework} ${framework})
     if(FRAMEWORK_${framework})
-        target_link_libraries(usc-game PRIVATE ${FRAMEWORK_${framework}})
+        # Plain signature: Main/CMakeLists.txt links usc-game the same way, and
+        # the two signatures cannot be mixed on one target.
+        target_link_libraries(usc-game ${FRAMEWORK_${framework}})
     endif()
 endforeach()

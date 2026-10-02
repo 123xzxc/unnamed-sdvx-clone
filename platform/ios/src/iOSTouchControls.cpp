@@ -187,6 +187,13 @@ public:
 			slotActivity[i] = std::fmax(0.0f, slotActivity[i] - deltaTime * 2.5f);
 	}
 
+	// SDL delivers touch coordinates normalized to 0..1 of the window, while the
+	// overlay (and everything else in the engine) works in game pixels.
+	Vector2 ToGameSpace(const Vector2& normalized) const
+	{
+		return Vector2(normalized.x * resolution.x, normalized.y * resolution.y);
+	}
+
 	Target HitTest(const Vector2& pos) const
 	{
 		Target t;
@@ -249,6 +256,7 @@ public:
 		if(!window)
 			return;
 
+		pos = ToGameSpace(pos);
 		Target target = HitTest(pos);
 		target.lastPos = pos;
 
@@ -286,6 +294,7 @@ public:
 		if(it == fingers.end() || !window)
 			return;
 
+		pos = ToGameSpace(pos);
 		Target& target = it->second;
 
 		if(target.kind == TargetKind::Passthrough)
