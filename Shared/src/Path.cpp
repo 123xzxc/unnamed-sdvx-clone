@@ -157,12 +157,23 @@ bool Path::CreateDirRecursive(String path)
 			path.clear();
 		}
 
-		if(!path1.empty())
+		if(segment.empty())
+		{
+			// A path that starts with a separator is absolute. The separator has to be
+			// carried over, otherwise every intermediate directory would be created
+			// relative to the current working directory, which is read-only inside an
+			// app bundle and wrong everywhere else.
+			if(offset == 0)
+				path1 = String() + Path::sep;
+			continue;
+		}
+
+		if(!path1.empty() && path1[path1.size() - 1] != Path::sep)
 			path1 += Path::sep;
 		path1 += segment;
 
 		// Create if not existing
-		if(IsDirectory(path1) || path1.empty())
+		if(IsDirectory(path1))
 			continue;
 		if(!CreateDir(path1))
 			return false;

@@ -238,3 +238,8 @@ IPA 里没有任何证书和描述文件，必须在本机重新签名后才能�
 * `cpr` / `libcurl` 是 iOS 依赖里最脆的一环。默认用 `-DUSC_IOS_HTTP=OFF` 走 API
   兼容的 stub；需要 Internet Ranking / 皮肤下载时，用 `workflow_dispatch` 勾上
   `http_enabled`。
+* `Path::CreateDirRecursive()` 以前会把绝对路径开头的前导 `/` 丢掉，把整条路径当
+  相对路径逐级 `mkdir`。游戏目录是沙盒 Documents 下的绝对路径，于是在只读的 .app
+  里 `mkdir("private")` 直接失败，目录建不出来，首次启动一个资源文件都不会复制，
+  加载第一个材质时就会报 `Could not load shaders skins/Default/shaders/font.vs`。
+  这个 helper 现在会保留前导分隔符（它是唯一调用者，只影响 iOS）。

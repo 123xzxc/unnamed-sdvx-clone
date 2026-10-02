@@ -133,7 +133,8 @@ String iOSPlatform::GetGameDataPath()
 	if(!Path::IsDirectory(gameDataPath))
 	{
 		Logf("iOS: creating game data directory \"%s\"", Logger::Severity::Info, gameDataPath);
-		Path::CreateDirRecursive(gameDataPath);
+		if(!Path::CreateDirRecursive(gameDataPath))
+			Logf("iOS: failed to create \"%s\"", Logger::Severity::Error, gameDataPath);
 	}
 	return gameDataPath;
 }
