@@ -5,7 +5,7 @@
 #include "iOSPlatform.h"
 #endif
 
-#ifdef _WIN32
+#if defined(_WIN32)
 // Windows entry point
 int32 __stdcall WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd)
 {
@@ -18,7 +18,7 @@ int32 __stdcall WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCm
 	delete g_application;
 	return ret;
 }
-#ifdef USC_IOS
+#elif defined(USC_IOS)
 /*
 	iPadOS/iOS entry point.
 
@@ -33,9 +33,7 @@ int32 __stdcall WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCm
 	  * main(), which is what the linker and UIApplicationMain look for.
 
 	SDL.h (through SDL_main.h) normally renames main() to SDL_main with a macro,
-	but only for translation units that include SDL.h. This file does not - it
-	uses the SDL platform headers directly - so both functions are defined with
-	their real names here and the renaming macro is never involved.
+	so the macro is dropped right below and both functions keep their real names.
 
 	iOSPlatform::Init() has to run before SDL creates its window.
 */
@@ -75,5 +73,4 @@ int main(int argc, char** argv)
 	delete g_application;
 	return ret;
 }
-#endif
 #endif

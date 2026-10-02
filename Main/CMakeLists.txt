@@ -80,9 +80,14 @@ if(USC_IOS)
     # SDL_main.h normally renames the application's main() to SDL_main(), and only
     # declares SDL_UIKitRunApp when it is included for this platform. Main.cpp
     # provides the whole entry point itself (see the comment there), so the header
-    # is included by that file directly and no extra definition is needed.
+    # is included by that file directly and no extra definition is needed there.
     # SDL_MAIN_AVAILABLE is deliberately NOT set: it would rename main() in every
     # translation unit that includes SDL.h, and Main.cpp wants both names.
+    #
+    # USC_IOS is repeated here, next to the sources that depend on it, so the
+    # platform layer and the entry point stay selected even if the definition in
+    # the top level CMakeLists.txt changes.
+    target_compile_definitions(usc-game PRIVATE USC_IOS)
 endif()
 
 find_package (Git)
