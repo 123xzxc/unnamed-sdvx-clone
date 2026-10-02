@@ -105,9 +105,10 @@ jobs:
 
       - name: Diagnose all compile errors
         # The Xcode build stops at the first translation unit that fails, so a
-        # second pass with the Makefile generator and `make -k` is run first: it
-        # keeps compiling after errors and prints every one of them, which makes
-        # fixing a batch of iOS problems a single round trip.
+        # second configure with the Makefile generator is used to export the
+        # compile commands, and every source file is syntax checked with them.
+        # That reports all errors of the whole project in a single run instead
+        # of one error per CI run.
         continue-on-error: true
         run: |
           EXTRA=""
@@ -119,18 +120,15 @@ jobs:
             -DCMAKE_SYSTEM_NAME=iOS \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DCMAKE_TOOLCHAIN_FILE="${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" \
             -DVCPKG_TARGET_TRIPLET=arm64-ios \
             -DVCPKG_INSTALLED_DIR="${DEPS_DIR}" \
             -DVCPKG_MANIFEST_MODE=OFF \
             ${EXTRA}
 
-          cmake --build "${BUILD_DIR}/diagnose" --target "${APP_NAME}" \
-            -- -k -j"$(sysctl -n hw.ncpu)" 2>&1 | tee "${BUILD_DIR}/diagnose.log" || true
-
-          echo "=== unique compile errors ==="
-          grep -E "error:" "${BUILD_DIR}/diagnose.log" \
-            | sed -E 's/^.*(error:)/\1/' | sort -u | head -n 300
+          python3 platform/ios/scripts/check_all_sources.py \
+            "${BUILD_DIR}/diagnose/compile_commands.json" "${GITHUB_WORKSPACE}"
 
       - name: Build
         run: |

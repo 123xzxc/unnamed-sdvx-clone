@@ -48,6 +48,15 @@
 #define glBindVertexArray glBindVertexArrayOES
 #define glDeleteVertexArrays glDeleteVertexArraysOES
 #endif
+
+/*
+	'glReadBuffer' only exists in ES 3.0 (there is no OES equivalent to fall back
+	on), so the ES 2.0 headers do not declare it. The context is an ES 3.0 one and
+	the OpenGLES framework exports the entry point, so it is declared here.
+*/
+#ifndef glReadBuffer
+extern "C" void glReadBuffer(GLenum mode);
+#endif
 #elif __APPLE__
 #include <OpenGL/gl3.h>
 #include <OpenGL/gl3ext.h>

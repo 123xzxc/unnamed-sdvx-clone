@@ -20,6 +20,16 @@ source_group("Sources\\Platform" FILES ${PLATFORM_SRC})
 
 set(AUDIO_SRC ${SRC} ${INC} ${PLATFORM_SRC})
 
+if(USC_IOS)
+    # miniaudio's Apple mobile backend imports AVFoundation (it has no C API for
+    # the audio session category), which only works from Objective-C++, so this
+    # one translation unit is built as Objective-C++ on iOS.
+    set_source_files_properties("${SRCROOT}/AudioStreamMa.cpp" PROPERTIES
+        LANGUAGE OBJCXX
+        COMPILE_OPTIONS "-x;objective-c++"
+    )
+endif()
+
 set(PCH_SRC ${PCHROOT}/stdafx.cpp)
 set(PCH_INC ${PCHROOT}/stdafx.h)
 set(PCH_FILES ${PCH_SRC} ${PCH_INC})
