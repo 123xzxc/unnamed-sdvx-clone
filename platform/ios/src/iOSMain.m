@@ -10,8 +10,16 @@
 	SDL_main is the application's main() from Main/src/Main.cpp: SDL_main.h renames
 	it through a macro (SDL_MAIN_AVAILABLE is defined for the iOS target), and
 	Main.cpp includes SDL.h through its precompiled header.
+
+	SDL.h (and therefore SDL_main.h) includes nothing but SDL_stdinc.h when
+	SDL_MAIN_HANDLED is defined, no matter which platform headers are available.
+	That is exactly what this file needs, because the macro would otherwise rename
+	the main() defined below to SDL_main as well; SDL_MAIN_HANDLED is defined at
+	the top of this file only, so the rest of the application keeps its SDL_main
+	alias. SDL_UIKitRunApp comes from the same header and is unaffected.
 */
 
+#define SDL_MAIN_HANDLED
 #include <SDL2/SDL.h>
 
 #if defined(__IPHONEOS__)
