@@ -19,8 +19,11 @@
 	alias. SDL_UIKitRunApp comes from the same header and is unaffected.
 */
 
-#define SDL_MAIN_HANDLED
-#include <SDL2/SDL.h>
+/* SDL_UIKitRunApp is the only SDL symbol that is needed here, so the platform
+   headers are included on their own instead of through SDL.h (which also pulls
+   in SDL_main.h and its "main is SDL_main" macro). */
+#include <SDL2/SDL_main.h>
+#include <SDL2/SDL_stdinc.h>
 
 #if defined(__IPHONEOS__)
 
