@@ -8,8 +8,24 @@ set(CPR_ENABLE_SSL ON)
 #if(MSVC)
 #    set(CPR_FORCE_USE_SYSTEM_CURL ON) #curl should be available through vcpkg
 #endif(MSVC)
-if(USE_SYSTEM_CPR)
-    find_package(cpr REQUIRED)
+if(USC_IOS AND NOT USC_IOS_HTTP)
+    # HTTP disabled for this iOS build: cpr is replaced by an API compatible shim
+    # that fails every request, so no libcurl has to be built for iOS.
+    add_library(cpr INTERFACE)
+    target_include_directories(cpr INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/../platform/ios/stubs)
+elseif(USC_IOS)
+    # vcpkg provides cpr (and libcurl) for the iOS triplets as well.
+    find_package(cpr CONFIG REQUIRED)
+    add_library(cpr INTERFACE)
+    target_link_libraries(cpr INTERFACE cpr::cpr)
+    if(DEFINED cpr_INCLUDE_DIRS)
+        target_include_directories(cpr INTERFACE ${cpr_INCLUDE_DIRS})
+    endif()
+elseif(USE_SYSTEM_CPR)
+    find_package(CPR REQUIRED)
+    add_library(cpr INTERFACE)
+    target_include_directories(cpr INTERFACE ${CPR_INCLUDE_DIRS})
+    target_link_libraries(cpr INTERFACE ${CPR_LIBRARIES})
 else()
     add_subdirectory(cpr)
     target_include_directories(cpr PUBLIC ${CPR_INCLUDE_DIRS})
@@ -18,8 +34,17 @@ endif(USE_SYSTEM_CPR)
 #discord example program
 set(CLANG_FORMAT_SUFFIX "ignore") #try to disable clang formatter
 option(BUILD_EXAMPLES "Build example apps" OFF)
-add_subdirectory(discord-rpc)
-target_include_directories(discord-rpc PUBLIC discord-rpc/include)
+if(USC_IOS)
+    # discord-rpc is a desktop IPC client; iOS only allows IPC through declared
+    # app extensions, so the calls are stubbed out instead.
+    add_library(discord-rpc STATIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/../platform/ios/stubs/discord_rpc_stub.cpp
+    )
+    target_include_directories(discord-rpc PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../platform/ios/stubs)
+else()
+    add_subdirectory(discord-rpc)
+    target_include_directories(discord-rpc PUBLIC discord-rpc/include)
+endif()
 
 #nanovg
 add_library(nanovg nanovg/src/nanovg.c)
@@ -92,15 +117,18 @@ target_include_directories(soundtouch PUBLIC soundtouch/include)
 target_include_directories(soundtouch PRIVATE soundtouch/src)
 
 #GLEW
-add_library(GLEW
-    glew/include/GL/glew.h
-    glew/include/GL/glxew.h
-    glew/include/GL/wglew.h
-    glew/src/glew.c
-)
-# GLEW is included statically and also doesn't need GLU(Which doesn't even exist on linux)
-target_compile_definitions(GLEW PUBLIC -DGLEW_NO_GLU -DGLEW_STATIC)
-target_include_directories(GLEW PUBLIC glew/include)
+# OpenGL ES exposes its entry points directly, so GLEW is not needed on iOS.
+if(NOT USC_IOS)
+    add_library(GLEW
+        glew/include/GL/glew.h
+        glew/include/GL/glxew.h
+        glew/include/GL/wglew.h
+        glew/src/glew.c
+    )
+    # GLEW is included statically and also doesn't need GLU(Which doesn't even exist on linux)
+    target_compile_definitions(GLEW PUBLIC -DGLEW_NO_GLU -DGLEW_STATIC)
+    target_include_directories(GLEW PUBLIC glew/include)
+endif()
 
 # Enable multiprocess compiling
 if(MSVC)

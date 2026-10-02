@@ -16,6 +16,11 @@
 #include "ShadedMesh.hpp"
 #include "IR.hpp"
 
+#ifdef USC_IOS
+#include "iOSPlatform.h"
+#include "iOSTouchControls.hpp"
+#endif
+
 #ifdef EMBEDDED
 #define NANOVG_GLES2_IMPLEMENTATION
 #else
@@ -992,6 +997,21 @@ bool Application::m_Init()
 		}
 	}
 
+#ifdef USC_IOS
+	{
+		/*
+			iPadOS has no XDG data directory and the .app bundle is read-only, so the
+			game directory has to live inside the app sandbox. Documents is used so
+			the player can drop songs, replays and skins in through the Files app or
+			Finder (the app declares UIFileSharingEnabled).
+		*/
+		if (Path::gameDir.empty())
+			Path::gameDir = iOSPlatform::GetGameDataPath();
+
+		iOSPlatform::InstallGameDataIfNeeded(Path::gameDir);
+	}
+#endif
+
 	if (Path::gameDir.empty()) {
 		char* xdgDataDir = std::getenv("XDG_DATA_HOME");
 
@@ -1108,6 +1128,21 @@ bool Application::m_Init()
 		return false;
 
 	// Create the game window
+#ifdef USC_IOS
+	{
+		// iOS only ever gives the app a single fullscreen window, so start it at the
+		// display size instead of whatever desktop resolution the config was created
+		// with. Rendering then happens at native resolution without upscaling.
+		SDL_DisplayMode displayMode;
+		if (SDL_GetDesktopDisplayMode(0, &displayMode) == 0 &&
+			displayMode.w > 0 && displayMode.h > 0)
+		{
+			g_gameConfig.Set(GameConfigKeys::ScreenWidth, displayMode.w);
+			g_gameConfig.Set(GameConfigKeys::ScreenHeight, displayMode.h);
+		}
+	}
+#endif
+
 	g_resolution = Vector2i(
 		g_gameConfig.GetInt(GameConfigKeys::ScreenWidth),
 		g_gameConfig.GetInt(GameConfigKeys::ScreenHeight));
@@ -1134,6 +1169,13 @@ bool Application::m_Init()
 
 	// Initialize Input
 	g_input.Init(*g_gameWindow);
+
+#ifdef USC_IOS
+	// On-screen SDVX controller. It feeds the normal input devices, so nothing else
+	// in the engine needs to know that a touch screen is being used.
+	g_iosTouchControls = new iOSTouchControls();
+	g_iosTouchControls->Init(*g_gameWindow);
+#endif
 
 	m_unpackSkins();
 
@@ -1221,14 +1263,22 @@ bool Application::m_Init()
 		nvgCreateFont(g_guiState.vg, "fallback", *Path::Absolute("fonts/NotoSansCJKjp-Regular.otf"));
 	}
 
+#ifndef USC_IOS
+	// Updates are delivered by the App Store on iPadOS, and the built-in updater
+	// can only replace desktop binaries anyway.
 	CheckForUpdate();
+#endif
 
 
 	m_InitDiscord();
+#ifndef USC_IOS
+	// Light plugins are loadable native modules, which iOS only allows for code
+	// that was shipped as part of the app bundle.
 	if (g_gameConfig.GetBool(GameConfigKeys::UseLightPlugins))
 	{
 		m_InitLightPlugins();
 	}
+#endif
 
 
 	CheckedLoad(m_fontMaterial = LoadMaterial("font"));
@@ -1385,6 +1435,11 @@ void Application::m_Tick()
 	// Handle input first
 	g_input.Update(m_deltaTime);
 
+#ifdef USC_IOS
+	if (g_iosTouchControls)
+		g_iosTouchControls->Tick(m_deltaTime);
+#endif
+
 	// Process async lua http callbacks
 	m_skinHttp.ProcessCallbacks();
 
@@ -1478,6 +1533,13 @@ void Application::RenderTickables()
 		CheckGLErrors("during rendering a tickable");
 	}
 
+#ifdef USC_IOS
+	// The on-screen controller is drawn on top of everything else, while the
+	// nanovg frame is still open.
+	if (g_iosTouchControls)
+		g_iosTouchControls->Render(m_deltaTime);
+#endif
+
 	m_renderStateBase.projectionTransform = GetGUIProjection();
 	if (m_showFps)
 	{
@@ -1541,6 +1603,15 @@ void Application::RenderTickables()
 void Application::m_Cleanup()
 {
 	ProfilerScope $("Application Cleanup");
+
+#ifdef USC_IOS
+	if (g_iosTouchControls)
+	{
+		g_iosTouchControls->Cleanup();
+		delete g_iosTouchControls;
+		g_iosTouchControls = nullptr;
+	}
+#endif
 
 	for (auto it : g_tickables)
 	{
@@ -1709,6 +1780,12 @@ const Vector<String> &Application::GetAppCommandLine() const
 {
 	return m_commandLine;
 }
+
+NVGcontext* Application::GetNVGContext() const
+{
+	return g_guiState.vg;
+}
+
 RenderState Application::GetRenderStateBase() const
 {
 	return m_renderStateBase;
@@ -2327,6 +2404,13 @@ void Application::m_UpdateWindowPosAndShape(int32 monitorId, bool fullscreen, bo
 void Application::m_OnFocusChanged(bool focused)
 {
 	bool muteUnfocused = g_gameConfig.GetBool(GameConfigKeys::MuteUnfocused);
+#ifdef USC_IOS
+	// Going to the background (or losing focus to a system alert) has to release
+	// every key and mouse button the on-screen controller is holding, otherwise the
+	// game would come back with buttons stuck down.
+	if (!focused && g_iosTouchControls)
+		g_iosTouchControls->ReleaseAll();
+#endif
 	if (focused && muteUnfocused)
 	{
 		g_audio->SetGlobalVolume(g_gameConfig.GetFloat(GameConfigKeys::MasterVolume));

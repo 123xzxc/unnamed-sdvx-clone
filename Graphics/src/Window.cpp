@@ -284,8 +284,25 @@ namespace Graphics
 				// Don't use range loop since it could loop through previously processed events from the previous loop
 				for (int i = 0; i < eventCount; ++i)
 				{
-					auto evt = events[i];
-					int32 delta = tick - evt.common.timestamp;
+					HandleEvent(events[i], tick);
+				}
+			}
+			while (eventCount == SIZE_EVENTS);
+
+			return !m_closed;
+		}
+
+		/*
+			Dispatches one SDL event to the window delegates.
+
+			Both the message pump above and InjectEvent() end up here, so a synthetic
+			key press coming from the iOS touch controls is handled exactly like a key
+			press coming from a real keyboard.
+		*/
+		void HandleEvent(const SDL_Event& evt, uint32 tick)
+		{
+			int32 delta = tick - evt.common.timestamp;
+			{
 					if (evt.type == SDL_EventType::SDL_KEYDOWN)
 					{
 						HandleKeyEvent(evt.key.keysym, 1, evt.key.repeat, delta);
@@ -416,13 +433,35 @@ namespace Graphics
 							SDL_free(evt.drop.file);
 						}
 					}
+					else if (evt.type == SDL_EventType::SDL_FINGERDOWN)
+					{
+						outer.OnFingerDown.Call((int32)evt.tfinger.fingerId,
+							Vector2(evt.tfinger.x, evt.tfinger.y), evt.tfinger.pressure);
+					}
+					else if (evt.type == SDL_EventType::SDL_FINGERMOTION)
+					{
+						outer.OnFingerMotion.Call((int32)evt.tfinger.fingerId,
+							Vector2(evt.tfinger.x, evt.tfinger.y), evt.tfinger.pressure);
+					}
+					else if (evt.type == SDL_EventType::SDL_FINGERUP)
+					{
+						outer.OnFingerUp.Call((int32)evt.tfinger.fingerId,
+							Vector2(evt.tfinger.x, evt.tfinger.y), evt.tfinger.pressure);
+					}
 					outer.OnAnyEvent.Call(evt);
 					m_lastEventTick = tick;
-				}
 			}
-			while (eventCount == SIZE_EVENTS);
+		}
 
-			return !m_closed;
+		// Injects a synthetic event. Used by the on-screen controls on iPadOS.
+		void InjectEvent(const SDL_Event& evt)
+		{
+			SDL_Event copy = evt;
+			const uint32 tick = SDL_GetTicks();
+			// Handlers use the delta between events, so make the injected event look
+			// like it arrived right after the previous one.
+			copy.common.timestamp = m_lastEventTick;
+			HandleEvent(copy, tick);
 		}
 
 		void SetWindowed(const Vector2i& pos, const Vector2i& size)
@@ -607,6 +646,11 @@ namespace Graphics
 		// Window Input State
 		Map<SDL_Scancode, uint8> m_keyStates;
 		ModifierKeys m_modKeys = ModifierKeys::None;
+
+		// Last requested relative mouse mode. On platforms without it (iOS) the
+		// request is remembered instead of being forwarded to SDL, so callers that
+		// poll GetRelativeMouseMode() do not retry every frame.
+		bool m_relativeMouseMode = false;
 
 		// Gamepad input
 		Map<int32, Ref<Gamepad_Impl>> m_gamepads;
@@ -810,13 +854,26 @@ namespace Graphics
 
 	void Window::SetMousePos(const Vector2i &pos)
 	{
+#ifdef USC_IOS
+		// iOS has no mouse cursor to warp.
+		(void)pos;
+#else
 		SDL_WarpMouseInWindow(m_impl->m_window, pos.x, pos.y);
+#endif
 	}
 
 	void Window::SetRelativeMouseMode(bool enabled)
 	{
+#ifdef USC_IOS
+		// Not supported by iOS. Remembering the request keeps Input::Update, which
+		// enables the mode while the mouse is locked during gameplay, from calling
+		// this every single frame (and logging a failure each time).
+		m_impl->m_relativeMouseMode = enabled;
+#else
 		if (SDL_SetRelativeMouseMode(enabled ? SDL_TRUE : SDL_FALSE) != 0)
 			Logf("SetRelativeMouseMode failed: %s", Logger::Severity::Warning, SDL_GetError());
+		m_impl->m_relativeMouseMode = enabled;
+#endif
 	}
 
 	uint32 Window::GetIdleTimsMs() {
@@ -825,7 +882,74 @@ namespace Graphics
 
 	bool Window::GetRelativeMouseMode()
 	{
+#ifdef USC_IOS
+		return m_impl->m_relativeMouseMode;
+#else
 		return SDL_GetRelativeMouseMode() == SDL_TRUE;
+#endif
+	}
+
+	void Window::InjectEvent(const SDL_Event& evt)
+	{
+		m_impl->InjectEvent(evt);
+	}
+
+	void Window::InjectKey(SDL_Scancode key, bool pressed)
+	{
+		SDL_Event evt;
+		SDL_memset(&evt, 0, sizeof(SDL_Event));
+		evt.type = pressed ? SDL_KEYDOWN : SDL_KEYUP;
+		evt.key.state = pressed ? SDL_PRESSED : SDL_RELEASED;
+		evt.key.repeat = 0;
+		evt.key.keysym.scancode = key;
+		evt.key.keysym.sym = SDL_GetKeyFromScancode(key);
+		evt.key.keysym.mod = KMOD_NONE;
+		m_impl->InjectEvent(evt);
+	}
+
+	void Window::InjectMouseMotion(int32 x, int32 y)
+	{
+		SDL_Event evt;
+		SDL_memset(&evt, 0, sizeof(SDL_Event));
+		evt.type = SDL_MOUSEMOTION;
+		evt.motion.xrel = x;
+		evt.motion.yrel = y;
+		m_impl->InjectEvent(evt);
+	}
+
+	void Window::InjectMousePosition(int32 x, int32 y)
+	{
+		SDL_Event evt;
+		SDL_memset(&evt, 0, sizeof(SDL_Event));
+		evt.type = SDL_MOUSEMOTION;
+		evt.motion.x = x;
+		evt.motion.y = y;
+		m_impl->InjectEvent(evt);
+	}
+
+	void Window::InjectMouseButton(MouseButton button, bool pressed)
+	{
+		SDL_Event evt;
+		SDL_memset(&evt, 0, sizeof(SDL_Event));
+		evt.type = pressed ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP;
+		evt.button.state = pressed ? SDL_PRESSED : SDL_RELEASED;
+		evt.button.clicks = 1;
+		switch(button)
+		{
+		case MouseButton::Left:
+			evt.button.button = SDL_BUTTON_LEFT;
+			break;
+		case MouseButton::Middle:
+			evt.button.button = SDL_BUTTON_MIDDLE;
+			break;
+		case MouseButton::Right:
+			evt.button.button = SDL_BUTTON_RIGHT;
+			break;
+		default:
+			evt.button.button = SDL_BUTTON_LEFT;
+			break;
+		}
+		m_impl->InjectEvent(evt);
 	}
 } // namespace Graphics
 

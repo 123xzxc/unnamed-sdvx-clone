@@ -1,6 +1,7 @@
 #pragma once
 #include <Graphics/Keys.hpp>
 #include <Graphics/Gamepad.hpp>
+#include <Shared/VectorMath.hpp>
 #include <SDL2/SDL.h>
 #define SIZE_EVENTS 64
 
@@ -151,6 +152,23 @@ namespace Graphics
 		[[nodiscard]]
 		uint32 GetIdleTimsMs();
 
+		/*
+			Synthetic event injection.
+
+			These exist for platforms without a keyboard or mouse where the game is
+			driven by on-screen controls (iPadOS). Injected events are dispatched
+			through the same code path as events coming from SDL, so delegates,
+			key state tracking and the UI event queue all behave identically.
+		*/
+		void InjectEvent(const SDL_Event& evt);
+		// Press or release a key. Used for the on-screen BT/FX/Start/Back buttons.
+		void InjectKey(SDL_Scancode key, bool pressed);
+		// Relative mouse movement. Used for the analog SDVX knobs.
+		void InjectMouseMotion(int32 x, int32 y);
+		// Absolute mouse position, used to move the UI cursor.
+		void InjectMousePosition(int32 x, int32 y);
+		// Mouse button press/release, used to tap on the UI.
+		void InjectMouseButton(MouseButton button, bool pressed);
 
 		Delegate<SDL_Scancode, int32> OnKeyPressed;
 		Delegate<SDL_Scancode, int32> OnKeyReleased;
@@ -164,6 +182,10 @@ namespace Graphics
 		Delegate<int32> OnMouseScroll;
 		// Called for the initial an repeating presses of a key
 		Delegate<SDL_Scancode> OnKeyRepeat;
+		// Touch input. Coordinates are normalized to 0..1 of the window client area.
+		Delegate<int32, Vector2, float> OnFingerDown;
+		Delegate<int32, Vector2, float> OnFingerMotion;
+		Delegate<int32, Vector2, float> OnFingerUp;
 		Delegate<const String&> OnTextInput;
 		Delegate<const TextComposition&> OnTextComposition;
 		Delegate<const Vector2i&> OnResized;

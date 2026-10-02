@@ -8,6 +8,16 @@
 #ifdef _WIN32
 #include <GL/glew.h>
 #include <GL/wglew.h>
+#elif defined(USC_IOS)
+/*
+	iPadOS/iOS.
+
+	OpenGL ES is the only GL flavour available, so the iOS build uses the same
+	feature level as the existing EMBEDDED renderer path (ES 2.0 + GLSL ES 1.00).
+	There is no EGL on iOS: the context is created by SDL through EAGL.
+*/
+#include <OpenGLES/ES2/gl.h>
+#include <OpenGLES/ES2/glext.h>
 #elif __APPLE__
 #include <OpenGL/gl3.h>
 #include <OpenGL/gl3ext.h>

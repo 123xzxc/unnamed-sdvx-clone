@@ -1,0 +1,25 @@
+{
+    "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg/master/scripts/vcpkg.schema.json",
+    "name": "usc-ios",
+    "version": "0.6.0",
+    "description": "Dependencies for the iPadOS build of unnamed-sdvx-clone",
+    "dependencies": [
+        "zlib",
+        "freetype",
+        "sdl2",
+        "libjpeg-turbo",
+        "libvorbis",
+        "libiconv",
+        "cpr",
+        {
+            "name": "libarchive",
+            "default-features": false,
+            "features": [
+                "bzip2",
+                "lz4",
+                "lzma",
+                "lzo"
+            ]
+        }
+    ]
+}

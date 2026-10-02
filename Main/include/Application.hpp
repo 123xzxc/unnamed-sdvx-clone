@@ -3,6 +3,8 @@
 #include "SkinIR.hpp"
 #include "Scoring.hpp"
 
+struct NVGcontext;
+
 #define DISCORD_APPLICATION_ID "514489760568573952"
 
 extern class OpenGL* g_gl;
@@ -58,6 +60,12 @@ public:
 	// Retrieves application command line parameters
 	[[nodiscard]]
 	const Vector<String> &GetAppCommandLine() const;
+
+	// nanovg context used for all GUI drawing. Exposed so that platform overlays
+	// (the iPadOS on-screen controls) can draw while the application's nanovg
+	// frame is active.
+	[[nodiscard]]
+	NVGcontext* GetNVGContext() const;
 
 	// Gets a basic template for a render state, with all the application variables initialized
 	[[nodiscard]]

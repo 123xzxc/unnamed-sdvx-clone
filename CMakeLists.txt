@@ -18,6 +18,35 @@ option(BUILD_SHARED_LIBS "Build libraries as shared libraries" OFF)
 option(USC_GNU_WERROR "Set Werror for gcc." OFF)
 option(USE_SYSTEM_CPR "Use system CPR" OFF)
 
+#
+# iOS / iPadOS
+#
+# The mobile build leans on CMake's built-in iOS support, so it is selected by
+# configuring with -DCMAKE_SYSTEM_NAME=iOS rather than through an option here.
+#
+#   cmake -G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_ARCHITECTURES=arm64 ..
+#
+# Dependencies come from vcpkg's arm64-ios / x64-ios triplets, the same way the
+# desktop builds use the host triplets.
+#
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    set(USC_IOS ON)
+endif()
+option(USC_IOS "Build for iPadOS/iOS" ${USC_IOS})
+
+if(USC_IOS)
+    # The mobile build reuses the OpenGL ES renderer that already exists for
+    # embedded targets: GLES 2.0, GLSL ES 1.00 and no geometry shaders.
+    set(EMBEDDED ON CACHE BOOL "Enable embedded build" FORCE)
+    add_definitions(-DUSC_IOS)
+
+    if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+        set(CMAKE_OSX_DEPLOYMENT_TARGET "15.0" CACHE STRING "Minimum iOS version" FORCE)
+    endif()
+
+    option(USC_IOS_HTTP "Enable HTTP features (Internet Ranking, skin downloads) on iOS" ON)
+endif()
+
 project(USC VERSION 0.6.0)
 if(WIN32 AND ${CMAKE_VERSION} VERSION_GREATER "3.12")
     cmake_policy(SET CMP0079 NEW)
@@ -97,7 +126,12 @@ find_package(JPEG REQUIRED)
 find_package(Vorbis REQUIRED)
 find_package(OGG REQUIRED)
 find_package(LibArchive REQUIRED)
-find_package(Iconv REQUIRED)
+if(USC_IOS)
+    # iconv is part of the iOS SDK; vcpkg also ships a static libiconv.
+    find_package(Iconv)
+else()
+    find_package(Iconv REQUIRED)
+endif()
 
 # All projects use unicode define
 # this is mainly for windows functions either being defined to call A or W prefixed functions
@@ -144,9 +178,16 @@ add_subdirectory(Beatmap)
 add_subdirectory(GUI)
 
 # Unit test projects
-add_subdirectory(Tests)
-add_subdirectory(Tests.Shared)
-add_subdirectory(Tests.Game)
+if(USC_IOS)
+    # iOS platform layer, application bundle and bundled game data
+    add_subdirectory(platform/ios)
+else()
+    # Unit test projects (desktop only: they need a console and a writable
+    # working directory next to the binary).
+    add_subdirectory(Tests)
+    add_subdirectory(Tests.Shared)
+    add_subdirectory(Tests.Game)
+endif()
 
 # Enabled project filters on windows
 if(MSVC)

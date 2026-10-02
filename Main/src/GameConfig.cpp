@@ -141,7 +141,15 @@ void GameConfig::InitDefaults()
 
 	// Input settings
 	SetEnum<Enum_InputDevice>(GameConfigKeys::ButtonInputDevice, InputDevice::Keyboard);
+#ifdef USC_IOS
+	// On iPadOS the buttons are played on the touch panel (which injects key
+	// presses) while the two knobs are analogue and therefore drive the mouse
+	// laser device. A connected MFi/Bluetooth controller can be selected in the
+	// input settings, which then overrides these defaults.
+	SetEnum<Enum_InputDevice>(GameConfigKeys::LaserInputDevice, InputDevice::Mouse);
+#else
 	SetEnum<Enum_InputDevice>(GameConfigKeys::LaserInputDevice, InputDevice::Keyboard);
+#endif
 	SetEnum<Enum_ButtonComboModeSettings>(GameConfigKeys::UseBackCombo, ButtonComboModeSettings::Hold);
 	SetEnum<Enum_LaserAxisOption>(GameConfigKeys::InvertLaserInput, LaserAxisOption::None);
 
@@ -269,7 +277,9 @@ void GameConfig::InitDefaults()
 	Set(GameConfigKeys::CurrentProfileName, "Main");
 	Set(GameConfigKeys::UpdateChannel, "master");
 
-#ifndef EMBEDDED
+#if !defined(EMBEDDED) || defined(USC_IOS)
+	// iPadOS has enough memory to keep the baked font atlas around, which avoids
+	// re-rasterizing every CJK glyph after a skin reload.
 	Set(GameConfigKeys::KeepFontTexture, true);
 #else
 	Set(GameConfigKeys::KeepFontTexture, false);

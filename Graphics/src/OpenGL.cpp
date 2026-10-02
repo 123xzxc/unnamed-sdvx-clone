@@ -120,8 +120,9 @@ namespace Graphics
 		}
 #endif
 
-#ifdef _DEBUG
+#if defined(_DEBUG) && !defined(USC_IOS)
 		// Setup GL debug messages to go to the console
+		// (OpenGL ES on iOS only exposes these entry points from ES 3.2 onwards)
 		if(glDebugMessageCallback && glDebugMessageControl)
 		{
 			Log("OpenGL Logging on.", Logger::Severity::Info);

@@ -1,0 +1,160 @@
+name: iOS Build
+
+# Builds the iPadOS/iOS port and packages it as an UNSIGNED .ipa that can be
+# re-signed locally (AltStore / Sideloadly / iOS App Signer / TrollStore / Xcode).
+#
+# GitHub's macOS runners have Xcode and the iOS SDK but no Apple signing
+# certificate, so the exported app is not signed and cannot be installed as-is.
+# The IPA is a plain zip of Payload/usc-game.app, which is what every
+# self-signing tool expects as input. A raw .app tarball is uploaded as well.
+#
+# Dependencies come from vcpkg's arm64-ios triplet, which is the slow part of the
+# build; the vcpkg tree and installed packages are cached between runs.
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      http_enabled:
+        description: 'Build with HTTP support (Internet Ranking / skin downloads)'
+        type: boolean
+        default: false
+
+jobs:
+  ios_build:
+    name: iOS build (unsigned IPA)
+    runs-on: macos-14
+    timeout-minutes: 180
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    env:
+      BUILD_DIR: ${{ github.workspace }}/build-ios
+      DEPS_DIR: ${{ github.workspace }}/build-ios/vcpkg-installed
+      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+      APP_NAME: usc-game
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Checkout submodules
+        run: git submodule update --init --recursive
+
+      - name: Show toolchain
+        run: |
+          xcode-select -p
+          xcodebuild -version
+          cmake --version | head -n 1
+          uname -m
+
+      - name: Cache vcpkg
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.VCPKG_ROOT }}
+            ${{ env.DEPS_DIR }}
+          key: ios-vcpkg-arm64-ios-${{ hashFiles('platform/ios/vcpkg.json', 'vcpkg.json') }}
+          restore-keys: |
+            ios-vcpkg-arm64-ios-
+
+      - name: Bootstrap vcpkg
+        run: |
+          if [ ! -x "${VCPKG_ROOT}/vcpkg" ]; then
+            rm -rf "${VCPKG_ROOT}"
+            git clone --depth 1 https://github.com/microsoft/vcpkg.git "${VCPKG_ROOT}"
+            "${VCPKG_ROOT}/bootstrap-vcpkg.sh"
+          fi
+          "${VCPKG_ROOT}/vcpkg" version
+
+      - name: Build iOS dependencies
+        run: |
+          # cpr/libcurl is the fragile part of the iOS dependency set and is only
+          # needed for Internet Ranking and skin downloads. With HTTP off it is
+          # dropped from the manifest so the game builds against the API-compatible
+          # cpr stub instead (see platform/ios/stubs/cpr and USC_IOS_HTTP below).
+          MANIFEST_DIR="${GITHUB_WORKSPACE}/platform/ios"
+          if [ "${{ inputs.http_enabled }}" != "true" ]; then
+            MANIFEST_DIR="${BUILD_DIR}/nohttp-manifest"
+            python3 platform/ios/scripts/make_nohttp_manifest.py \
+              platform/ios/vcpkg.json "${MANIFEST_DIR}/vcpkg.json"
+          fi
+
+          "${VCPKG_ROOT}/vcpkg" install \
+            --triplet arm64-ios \
+            --x-manifest-root="${MANIFEST_DIR}" \
+            --x-install-root="${DEPS_DIR}"
+
+      - name: Configure CMake
+        run: |
+          EXTRA=""
+          if [ "${{ inputs.http_enabled }}" != "true" ]; then
+            EXTRA="-DUSC_IOS_HTTP=OFF"
+          fi
+
+          cmake -S . -B "${BUILD_DIR}/project" -G Xcode \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
+            -DCMAKE_TOOLCHAIN_FILE="${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_TARGET_TRIPLET=arm64-ios \
+            -DVCPKG_INSTALLED_DIR="${DEPS_DIR}" \
+            -DVCPKG_MANIFEST_MODE=OFF \
+            ${EXTRA}
+
+      - name: Build
+        run: |
+          # No certificate exists on the runner, so every signing step is disabled.
+          # The app is re-signed locally before it is installed.
+          cmake --build "${BUILD_DIR}/project" \
+            --config Release --target "${APP_NAME}" \
+            -- -sdk iphoneos \
+               CODE_SIGNING_ALLOWED=NO \
+               CODE_SIGNING_REQUIRED=NO \
+               CODE_SIGN_IDENTITY="" \
+               CODE_SIGN_ENTITLEMENTS="" \
+               PROVISIONING_PROFILE_SPECIFIER="" \
+               DEVELOPMENT_TEAM=""
+
+      - name: Locate app bundle
+        id: app
+        run: |
+          APP="$(find "${BUILD_DIR}/project" "${GITHUB_WORKSPACE}/bin" -maxdepth 8 -name "${APP_NAME}.app" -type d -print -quit 2>/dev/null || true)"
+          if [ -z "${APP}" ]; then
+            echo "::error::usc-game.app was not produced; the build did not complete."
+            exit 1
+          fi
+          echo "path=${APP}" >> "$GITHUB_OUTPUT"
+          du -sh "${APP}"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "${APP}/Info.plist" || true
+
+      - name: Package unsigned IPA
+        id: ipa
+        run: |
+          APP="${{ steps.app.outputs.path }}"
+          IPA_DIR="${BUILD_DIR}/ipa"
+          rm -rf "${IPA_DIR}"
+          mkdir -p "${IPA_DIR}/Payload"
+          cp -R "${APP}" "${IPA_DIR}/Payload/"
+
+          # The app is not signed, so no code signature or provisioning profile is
+          # embedded; self-signing tools replace the signature anyway.
+          IPA="${GITHUB_WORKSPACE}/${APP_NAME}-unsigned.ipa"
+          (cd "${IPA_DIR}" && zip -qry "${IPA}" Payload)
+          echo "path=${IPA}" >> "$GITHUB_OUTPUT"
+          ls -lh "${IPA}"
+
+          # The raw .app is kept as well: iOS App Signer and Sideloadly accept both.
+          tar -czf "${GITHUB_WORKSPACE}/${APP_NAME}-app-unsigned.tar.gz" \
+            -C "$(dirname "${APP}")" "$(basename "${APP}")"
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: usc-game-ios-unsigned-ipa
+          path: |
+            ${{ steps.ipa.outputs.path }}
+            ${{ github.workspace }}/usc-game-app-unsigned.tar.gz
+          if-no-files-found: error
+          retention-days: 30

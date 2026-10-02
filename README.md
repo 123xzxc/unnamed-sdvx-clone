@@ -4,6 +4,12 @@ A game based on [KShootMania](http://www.kshootmania.com/) and [SDVX](https://re
 ### Project status
 This repository is practically in maintenance mode as I would much rather spend my time on the rewrite to Rust that can be found [here](https://github.com/Drewol/kson-rs).
 
+### iPadOS port
+The game can be built for iPadOS. The port keeps the desktop builds untouched: it reuses
+the existing OpenGL ES (`EMBEDDED`) renderer, adds an on-screen controller that feeds the
+normal input devices, and puts all game data into the app's Documents folder.
+Build instructions and the list of changes are in [`platform/ios/README.md`](platform/ios/README.md).
+
 ### [**Download latest Windows build**](https://drewol.me/Downloads/Game.zip)
 
 ### [**FAQ**](https://github.com/Drewol/unnamed-sdvx-clone/wiki/F.-A.-Q.)

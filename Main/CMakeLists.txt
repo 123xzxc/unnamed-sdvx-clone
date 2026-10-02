@@ -47,7 +47,12 @@ source_group("" FILES ${PCH_FILES})
 enable_precompiled_headers("${MAIN_SRC}" ${PCH_SRC})
 
 include_directories(Audio GUI .)
-add_executable(usc-game ${MAIN_SRC} ${RESOURCE_SRC} ${PCH_FILES})
+if(USC_IOS)
+    # The iOS build produces an application bundle (.app).
+    add_executable(usc-game MACOSX_BUNDLE ${MAIN_SRC} ${PCH_FILES})
+else()
+    add_executable(usc-game ${MAIN_SRC} ${RESOURCE_SRC} ${PCH_FILES})
+endif()
 target_include_directories(usc-game PRIVATE
     ${SRCROOT}
     ${SRCROOT}/GUI
@@ -75,7 +80,13 @@ else(GIT_FOUND)
     target_compile_definitions(usc-game PRIVATE GIT_BRANCH="master")
 endif(GIT_FOUND)
 
-set_output_postfixes(usc-game)
+# The bundle name has to match the executable name on iOS, so it keeps its plain
+# name there instead of getting a _Debug/_Release suffix.
+if(NOT USC_IOS)
+    set_output_postfixes(usc-game)
+else()
+    set_target_properties(usc-game PROPERTIES DEBUG_POSTFIX "" RELEASE_POSTFIX "")
+endif()
 set_werror(usc-game)
 
 if(MSVC)

@@ -2,3 +2,11 @@ third_party/* linguist-vendored
 third_party/LZMA/* linguist-vendored
 third_party/zlib-1.2.8/* linguist-vendored
 
+# Shell scripts, Python and CI definitions have to keep LF endings: they run on
+# Linux/macOS (including the iOS build on GitHub's macOS runners) where CRLF
+# breaks shebangs, heredocs and some YAML parsers.
+*.sh text eol=lf
+*.py text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
