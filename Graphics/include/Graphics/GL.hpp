@@ -55,7 +55,10 @@
 	the OpenGLES framework exports the entry point, so it is declared here.
 */
 #ifndef glReadBuffer
-extern "C" void glReadBuffer(GLenum mode);
+#ifdef __cplusplus
+extern "C"
+#endif
+void glReadBuffer(GLenum mode);
 #endif
 #elif __APPLE__
 #include <OpenGL/gl3.h>

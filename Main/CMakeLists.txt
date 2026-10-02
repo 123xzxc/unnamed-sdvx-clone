@@ -67,22 +67,13 @@ target_compile_definitions(usc-game PRIVATE VERSION_MAJOR=${PROJECT_VERSION_MAJO
 target_compile_definitions(usc-game PRIVATE VERSION_PATCH=${PROJECT_VERSION_PATCH})
 
 if(USC_IOS)
-    # SDL provides the real entry point on iOS (SDL_UIKitRunApp is called from
-    # UIApplicationMain through libSDL2main.a) and renames the application's main
-    # to SDL_main with a macro in SDL_main.h. That macro is part of the same
-    # header that declares SDL_UIKitRunApp, and SDL.h only includes it when the
-    # consumer asks for the "main" wrapper:
-    #
-    #   #define SDL_MAIN_HANDLED   -> main() stays main(), no SDL_main, no _main
-    #   (nothing defined)         -> SDL.h declares SDL_main() but does not
-    #                                include SDL_main.h, which is what pkg-config
-    #                                users rely on, and _main is undefined too
-    #
-    # Defining SDL_MAIN_HANDLED would drop the SDL_main alias, so instead force
-    # the header in: SDL.h does include it when SDL_MAIN_AVAILABLE or
-    # SDL_MAIN_NEEDED is defined, and SDL_main.h then renames main to SDL_main.
+    # On iOS SDL owns the entry point: SDL_main.h renames the application's main()
+    # to SDL_main() (and SDL.h only includes that header when SDL_MAIN_AVAILABLE
+    # is defined, which is why it is set here), while the real main() comes from
+    # SDL's UIKit stub. SDL only ships that stub inside libSDL2main.a when SDL
+    # itself is compiled from source; the vcpkg package links SDL2 as a static
+    # library instead, so the stub is built here from the SDL2 headers.
     target_compile_definitions(usc-game PRIVATE SDL_MAIN_AVAILABLE)
-    target_link_libraries(usc-game SDL2main)
 endif()
 
 find_package (Git)
