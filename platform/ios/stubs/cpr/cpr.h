@@ -80,10 +80,24 @@ namespace cpr
 
 	struct Multipart
 	{
+		// Same constructor set as the real cpr::Multipart::Part, so that
+		//   cpr::Multipart{ {"identifier", value}, {"replay", cpr::File{path}} }
+		// keeps compiling (Main/src/IR.cpp uploads replays this way).
 		struct Part
 		{
+			Part() = default;
+			Part(const std::string& key, const std::string& value) : key(key), value(value) {}
+			Part(const std::string& key, const File& file)
+				: key(key), value(file.path), filename(file.path), filePath(file.path), isFile(true) {}
+			Part(const std::string& key, const std::string& value, const std::string& contentType)
+				: key(key), value(value), contentType(contentType) {}
+			Part(const std::string& key, const std::string& value, const std::string& contentType, const std::string& filename)
+				: key(key), value(value), contentType(contentType), filename(filename) {}
+
 			std::string key;
 			std::string value;
+			std::string contentType;
+			std::string filename;
 			std::string filePath;
 			bool isFile = false;
 		};
