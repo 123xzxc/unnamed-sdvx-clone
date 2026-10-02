@@ -2,6 +2,7 @@
 
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
+#import <dispatch/dispatch.h>
 
 #include <SDL2/SDL.h>
 

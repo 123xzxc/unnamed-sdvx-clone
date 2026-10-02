@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Shared/Types.hpp"
+
 namespace Utility
 {
 	// Utility function that clears out an object passed to it by using memset on the object's size
