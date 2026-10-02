@@ -30,7 +30,7 @@ namespace cpr
 	struct Error
 	{
 		ErrorCode code = ErrorCode::INTERNAL_ERROR;
-		std::string message = "HTTP support is not compiled into this iOS build";
+		std::string message = "This build was compiled without HTTP support";
 	};
 
 	// Header behaves like a std::map<std::string, std::string>.

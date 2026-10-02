@@ -56,6 +56,9 @@ private:
 	int m_PlayPreview(struct lua_State* L);
 	int m_StopPreview(struct lua_State* L);
 	int m_GetSongsPath(struct lua_State* L);
+#ifdef USC_IOS_NO_HTTP
+	int m_HttpSupported(struct lua_State* L);
+#endif
 	bool m_extractFile(struct archive* a, String path);
 	Map<String, String> m_mapFromLuaTable(int index);
 

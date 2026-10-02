@@ -3122,6 +3122,12 @@ bool JacketLoadingJob::Run()
 	// Create loading task
 	if (web)
 	{
+#ifdef USC_IOS_NO_HTTP
+		// Web images cannot be fetched in a build without HTTP support; the
+		// placeholder jacket is kept instead of starting a request that would
+		// only fail.
+		return false;
+#else
 		auto response = cpr::Get(cpr::Url(imagePath));
 		if (response.error.code != cpr::ErrorCode::OK || response.status_code >= 300)
 		{
@@ -3139,6 +3145,7 @@ bool JacketLoadingJob::Run()
 			}
 		}
 		return loadedImage.get() != nullptr;
+#endif
 	}
 	else
 	{

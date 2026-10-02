@@ -1,6 +1,23 @@
 json = require "json"
 local header = {}
-header["user-agent"] = "unnamed_sdvx_clone"
+header["user-agent"] = "Mozilla/5.0 (iPad; CPU OS 15_0 like Mac OS X) unnamed_sdvx_clone/0.6.0"
+header["accept"] = "application/json"
+
+-- Cryptic libcurl errors ("Couldn't connect to server", "SSL connect error")
+-- are not useful on their own, so the request URL is shown as well.
+local function formatError(status, err)
+    local msg
+    if err == nil or err == "" then
+        if status ~= 0 then
+            msg = "The server returned HTTP " .. tostring(status) .. "."
+        else
+            msg = "The request could not be completed."
+        end
+    else
+        msg = tostring(err)
+    end
+    return msg .. "\nRequest: " .. tostring(nextUrl)
+end
 
 local jacketFallback = gfx.CreateSkinImage("song_select/loading.png", 0)
 local diffColors = {{50,50,127}, {50,127,50}, {127,50,50}, {127, 50, 127}}
@@ -39,6 +56,11 @@ local levelcursor = 0
 local sortingcursor = 0
 local sortingOptions = {"Uploaded", "Oldest"}
 local needsReload = false
+
+-- A build configured with -DUSC_IOS_HTTP=OFF answers false here, so the screen
+-- can report the missing feature straight away instead of waiting for a request
+-- that is guaranteed to fail.
+local httpSupported = dlScreen.HttpSupported == nil or dlScreen.HttpSupported()
 
 function addsong(song)
     if song.jacket_url ~= nil then
@@ -79,18 +101,14 @@ end
 
 function gotSongsCallback(response)
     if response.status ~= 200 then 
-        -- The iPadOS build can be compiled without HTTP support (USC_IOS_HTTP=OFF,
-        -- the CI default), in which case every request fails with status 0 and the
-        -- screen would stay on "LOADING..." forever. Report it instead, and stop
-        -- the endless retry that load_more() would otherwise trigger.
-        if response.status == 0 then
-            loading = false
-            loadingFailed = true
-            loadingError = response.error or "HTTP support is not available in this build"
-            return
-        end
-        error() 
-        return 
+        -- Any failed request used to be reported with error(), which only prints
+        -- to the console, so the screen silently kept showing an empty list.
+        -- Showing the failure and stopping the load_more() retry loop makes the
+        -- cause (no network, TLS, unbuildable URL, ...) visible on the device.
+        loading = false
+        loadingFailed = true
+        loadingError = formatError(response.status, response.error)
+        return
     end
     local jsondata = json.decode(response.text)
     loadingFailed = false
@@ -101,7 +119,13 @@ function gotSongsCallback(response)
     loading = false
 end
 
-Http.GetAsync(nextUrl, header, gotSongsCallback)
+if httpSupported then
+    Http.GetAsync(nextUrl, header, gotSongsCallback)
+else
+    loading = false
+    loadingFailed = true
+    loadingError = "This build was compiled without HTTP support.\nCopy song folders into the app's Files folder to play them."
+end
 
 
 function render_song(song, x,y)
@@ -164,7 +188,7 @@ function render_song(song, x,y)
 end
 
 function load_more()
-    if nextUrl ~= nil and not loading and not loadingFailed then
+    if httpSupported and nextUrl ~= nil and not loading and not loadingFailed then
         Http.GetAsync(nextUrl, header, gotSongsCallback)
         loading = true
     end
@@ -193,11 +217,18 @@ function render_loading()
         gfx.FillColor(255,120,120)
         gfx.TextAlign(gfx.TEXT_ALIGN_CENTER, gfx.TEXT_ALIGN_MIDDLE)
         gfx.FontSize(46)
-        gfx.Text("Song downloads are not available in this build", resX/2, resY/2 - 40)
-        gfx.FontSize(30)
+        gfx.Text("Could not load the song list", resX/2, resY/2 - 45)
+        gfx.FontSize(28)
         gfx.FillColor(230,230,230)
-        gfx.Text("Internet Ranking / HTTP support was disabled at compile time.", resX/2, resY/2 + 5)
-        gfx.Text("Copy song folders into the app's Files folder to play them.", resX/2, resY/2 + 45)
+        -- The message carries the reason and the request URL, so it is drawn
+        -- line by line instead of being cut off at the screen edge.
+        local lines = {}
+        for line in (loadingError .. "\n"):gmatch("(.-)\n") do
+            table.insert(lines, line)
+        end
+        for i, line in ipairs(lines) do
+            gfx.Text(line, resX/2, resY/2 + (i - 1) * 36 - 5)
+        end
         gfx.Restore()
         return
     end

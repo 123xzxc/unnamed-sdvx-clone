@@ -47,6 +47,14 @@ if(USC_IOS)
     endif()
 
     option(USC_IOS_HTTP "Enable HTTP features (Internet Ranking, skin downloads) on iOS" ON)
+
+    if(NOT USC_IOS_HTTP)
+        # The cpr stub compiles everywhere, but a build that was configured
+        # without HTTP never gets one back, so tell the C++ code as well and let
+        # the in-game download browser report the missing feature immediately
+        # instead of opening an empty screen.
+        add_definitions(-DUSC_IOS_NO_HTTP)
+    endif()
 endif()
 
 project(USC VERSION 0.6.0)
