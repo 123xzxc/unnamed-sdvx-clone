@@ -74,10 +74,27 @@ namespace Graphics
 
 			m_window = SDL_CreateWindow(*titleUtf8, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
 #ifdef USC_IOS
-										// Render at the native pixel resolution of the display
-										// instead of letting iOS upscale a point sized framebuffer.
+										/*
+											The window is created in points and stays that way:
+											SDL_WINDOW_ALLOW_HIGHDPI is deliberately not set.
+
+											With it, the window size (points) and the framebuffer
+											size (pixels) differ, and which of the two an event or
+											a query reports depends on the driver and on the exact
+											moment it is asked. The engine derives g_resolution,
+											the viewport and the touch mapping from those values,
+											and a single mismatched report made the game render
+											into the lower left quarter of the screen.
+
+											Rendering in points is always self consistent: the
+											window size, the drawable size and the touch
+											coordinates agree, and iOS simply scales the
+											framebuffer up to the panel, which is what the
+											engine's own render resolution setting already
+											controls.
+										*/
 										m_clntSize.x, m_clntSize.y,
-										SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
+										SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
 #else
 										m_clntSize.x, m_clntSize.y, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
 #endif
@@ -187,17 +204,6 @@ namespace Graphics
 		Vector2i GetWindowSize() const
 		{
 			Vector2i res;
-#ifdef USC_IOS
-			/*
-				SDL reports an iOS window in points while the framebuffer is the native
-				pixel buffer of the screen. The engine renders in framebuffer pixels
-				(viewport, GUI layout and touch coordinates), so that is what the window
-				size means on iOS.
-			*/
-			SDL_GL_GetDrawableSize(m_window, &res.x, &res.y);
-			if (res.x > 0 && res.y > 0)
-				return res;
-#endif
 			SDL_GetWindowSize(m_window, &res.x, &res.y);
 			return res;
 		}
@@ -408,13 +414,7 @@ namespace Graphics
 						{
 							if (evt.window.event == SDL_WindowEventID::SDL_WINDOWEVENT_SIZE_CHANGED)
 							{
-#ifdef USC_IOS
-								// The event carries the size in points; the engine works in
-								// framebuffer pixels.
-								Vector2i newSize = GetWindowSize();
-#else
 								Vector2i newSize(evt.window.data1, evt.window.data2);
-#endif
 								outer.OnResized.Call(newSize);
 							}
 							else if (evt.window.event == SDL_WindowEventID::SDL_WINDOWEVENT_FOCUS_GAINED)

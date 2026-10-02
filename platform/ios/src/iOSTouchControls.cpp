@@ -28,6 +28,10 @@ namespace
 		Button,
 		Start,
 		Back,
+		// Touch started on a control but moved outside of it. It keeps the button
+		// held while the finger stays off the panel, and is only released when the
+		// finger is lifted.
+		ButtonDrag,
 	};
 
 	// Which visual slot a button maps to when drawing.
@@ -65,6 +69,10 @@ namespace
 		Vector2 btPos[4];
 		float btRadius = 0.0f;
 
+		// Corner rows the BT/FX buttons are anchored to.
+		float btRowY = 0.0f;
+		float fxRowY = 0.0f;
+
 		Vector2 fxPos[2];
 		Vector2 fxSize;
 
@@ -78,18 +86,45 @@ namespace
 			const float h = res.y;
 
 			knobRadius = 0.085f * h;
-			knobPos[0] = Vector2(0.100f * w, 0.520f * h);
-			knobPos[1] = Vector2(0.900f * w, 0.520f * h);
+		knobPos[0] = Vector2(0.090f * w, 0.460f * h);
+		knobPos[1] = Vector2(0.910f * w, 0.460f * h);
 
-			btRadius = 0.062f * h;
-			btPos[0] = Vector2(0.225f * w, 0.865f * h); // BT-A
-			btPos[1] = Vector2(0.325f * w, 0.865f * h); // BT-B
-			btPos[2] = Vector2(0.425f * w, 0.865f * h); // BT-C
-			btPos[3] = Vector2(0.575f * w, 0.865f * h); // BT-D
+			/*
+				The four buttons are the two corners of the console layout, not one
+				row: the left hand plays BT-A/B/C plus FX-L, the right hand plays
+				BT-D plus FX-R. They also have to sit on the substrate they are drawn
+				with. The old single row was wrong on both counts: the rounded
+				rectangle behind it only covered x < 0.5w, which put BT-C, BT-D and
+				FX-R past the end of the panel, and C was placed to the right of D
+				rather than between B and D.
 
-			fxSize = Vector2(0.055f * w, 0.185f * h);
-			fxPos[0] = Vector2(0.085f * w, 0.865f * h); // FX-L
-			fxPos[1] = Vector2(0.915f * w, 0.865f * h); // FX-R
+				Splitting the panel in half gives both hands the same amount of room,
+				so the layout is symmetric: FX-L, A, B, C on the left, FX-R, D on the
+				right, both read from the outside in.
+			*/
+			const float padHalfH = 0.105f * h;
+			btRadius = 0.070f * h;
+			btRowY = 0.885f * h - padHalfH;
+
+			// Half of the screen minus a small margin; the first button is one
+			// radius plus a gap away from that edge.
+			const float leftEdge = 0.030f * w;
+			const float rightEdge = 0.970f * w;
+			const float gap = btRadius * 0.35f;
+			const float step = btRadius * 2.0f + gap;
+
+			// BT-A/B/C, left of the screen, read from the outside in.
+			for(int i = 0; i < 3; i++)
+				btPos[i] = Vector2(leftEdge + btRadius + step * (float)i, btRowY);
+			// BT-D, right of the screen, mirrored.
+			btPos[3] = Vector2(rightEdge - btRadius, btRowY);
+
+			// The wide effect buttons sit in the outermost corners, between the
+			// knobs and the last BT button of their hand.
+			fxSize = Vector2(0.048f * w, 0.150f * h);
+			fxRowY = btRowY;
+			fxPos[0] = Vector2(leftEdge + fxSize.x * 0.5f, fxRowY); // FX-L
+			fxPos[1] = Vector2(rightEdge - fxSize.x * 0.5f, fxRowY); // FX-R
 
 			cornerSize = Vector2(0.085f * w, 0.075f * h);
 			startPos = Vector2(0.065f * w, 0.075f * h);
@@ -332,12 +367,39 @@ public:
 		// Buttons: sliding onto another control releases the old one and presses the
 		// new one, which is what a player expects from a touch panel.
 		Target newTarget = HitTest(pos);
+
+		/*
+			Sliding off a button must not turn the touch into a UI tap. The old
+			behaviour pressed the left mouse button whenever a finger left a control,
+			and only released it on finger up: dragging from a button to empty space
+			and lifting the finger there left the mouse button held down, so from the
+			next frame on every menu click acted like a drag and the menu stopped
+			responding. A touch that started on a control now stays a control touch
+			for its whole lifetime.
+		*/
+		if(newTarget.kind == TargetKind::None)
+		{
+			if(target.kind == TargetKind::ButtonDrag)
+				return; // Already released when the finger left the control.
+
+			window->InjectKey(target.key, false);
+			if(target.slot >= 0)
+				slotActivity[target.slot] = 0.0f;
+
+			target.kind = TargetKind::ButtonDrag;
+			target.key = SDL_SCANCODE_UNKNOWN;
+			return;
+		}
+
 		if(newTarget.kind == target.kind && newTarget.key == target.key)
 			return;
 
-		window->InjectKey(target.key, false);
-		if(target.slot >= 0)
-			slotActivity[target.slot] = 0.0f;
+		if(target.kind != TargetKind::ButtonDrag)
+		{
+			window->InjectKey(target.key, false);
+			if(target.slot >= 0)
+				slotActivity[target.slot] = 0.0f;
+		}
 
 		if(newTarget.kind == TargetKind::Button || newTarget.kind == TargetKind::Start ||
 		   newTarget.kind == TargetKind::Back)
@@ -357,8 +419,8 @@ public:
 		}
 		else
 		{
-			// Sliding off the panel turns the touch into a UI tap so the finger can
-			// keep being used for menu clicks instead of going dead.
+			// Sliding onto empty space keeps holding the last button, like a real
+			// finger resting on the edge of a pad would.
 			if(mousePassthroughDown)
 			{
 				fingers.erase(it);
@@ -367,13 +429,8 @@ public:
 			{
 				if(target.slot >= 0)
 					slotActivity[target.slot] = 0.0f;
-				Target passthrough;
-				passthrough.kind = TargetKind::Passthrough;
-				passthrough.lastPos = pos;
-				mousePassthroughDown = true;
-				window->InjectMousePosition((int32)pos.x, (int32)pos.y);
-				window->InjectMouseButton(MouseButton::Left, true);
-				fingers[id] = passthrough;
+				target.kind = TargetKind::ButtonDrag;
+				target.lastPos = pos;
 			}
 		}
 	}
@@ -394,6 +451,17 @@ public:
 			window->InjectMouseButton(MouseButton::Left, false);
 			mousePassthroughDown = false;
 		}
+		else if(target.kind == TargetKind::ButtonDrag)
+		{
+			// The key was already released when the finger left the control.
+		}
+		else if(target.kind == TargetKind::Button || target.kind == TargetKind::Start ||
+				target.kind == TargetKind::Back)
+		{
+			window->InjectKey(target.key, false);
+			if(target.slot >= 0)
+				slotActivity[target.slot] = 0.0f;
+		}
 		else if(target.slot >= 0)
 		{
 			slotActivity[target.slot] = 0.0f;
@@ -413,7 +481,8 @@ public:
 				{
 					window->InjectMouseButton(MouseButton::Left, false);
 				}
-				else if(t.kind != TargetKind::KnobLeft && t.kind != TargetKind::KnobRight)
+				else if(t.kind == TargetKind::Button || t.kind == TargetKind::Start ||
+						t.kind == TargetKind::Back)
 				{
 					window->InjectKey(t.key, false);
 				}
@@ -467,6 +536,26 @@ void iOSTouchControls_Impl::Render()
 		nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
 		nvgFillColor(vg, nvgRGBAf(1.0f, 1.0f, 1.0f, alpha * 0.9f));
 		nvgText(vg, p.x, p.y + r * 0.62f, "KNOB", nullptr);
+	}
+
+	/*
+		The felt the buttons are drawn on. Without it the controls float over the
+		playfield and it is impossible to tell where the panel actually is.
+	*/
+	{
+		const float rowTop = layout.btRowY - 0.105f * resolution.y;
+		const float halfW = 0.5f * resolution.x;
+		const float radius = 0.03f * resolution.y;
+
+		nvgBeginPath(vg);
+		nvgRoundedRect(vg, 0.0f, rowTop, halfW, -rowTop, radius);
+		nvgFillColor(vg, nvgRGBAf(0.05f, 0.06f, 0.09f, 0.22f));
+		nvgFill(vg);
+
+		nvgBeginPath(vg);
+		nvgRoundedRect(vg, halfW, rowTop, halfW, -rowTop, radius);
+		nvgFillColor(vg, nvgRGBAf(0.05f, 0.06f, 0.09f, 0.22f));
+		nvgFill(vg);
 	}
 
 	// BT buttons.

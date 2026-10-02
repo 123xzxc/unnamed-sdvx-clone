@@ -1132,13 +1132,36 @@ bool Application::m_Init()
 	{
 		// iOS only ever gives the app a single fullscreen window, so start it at the
 		// display size instead of whatever desktop resolution the config was created
-		// with. Rendering then happens at native resolution without upscaling.
+			// with. The window is created in points (no SDL_WINDOW_ALLOW_HIGHDPI, see
+			// Graphics::Window), which is the unit the whole engine works in: the
+			// viewport, the GUI layout and the touch coordinates all agree on it.
 		SDL_DisplayMode displayMode;
 		if (SDL_GetDesktopDisplayMode(0, &displayMode) == 0 &&
 			displayMode.w > 0 && displayMode.h > 0)
 		{
-			g_gameConfig.Set(GameConfigKeys::ScreenWidth, displayMode.w);
-			g_gameConfig.Set(GameConfigKeys::ScreenHeight, displayMode.h);
+				/*
+					SDL_GetDesktopDisplayMode reports the panel in pixels while the window
+					is created in points, so the requested window size is scaled down by
+					the native screen scale. Creating a window that is too large is
+					harmless on iOS (it is clamped to the screen), but it must never be
+					smaller than the screen: the engine takes the resulting window size as
+					its render resolution, and a short window made everything render into
+					a fraction of the panel.
+
+					Note that g_resolution is overwritten again from the window that was
+					actually created, further down.
+				*/
+				int windowW = displayMode.w;
+				int windowH = displayMode.h;
+				const float scale = iOSPlatform::GetNativeScreenScale();
+				if (scale > 0.0f)
+				{
+					windowW = (int)(windowW / scale);
+					windowH = (int)(windowH / scale);
+				}
+
+				g_gameConfig.Set(GameConfigKeys::ScreenWidth, windowW);
+				g_gameConfig.Set(GameConfigKeys::ScreenHeight, windowH);
 		}
 	}
 #endif
@@ -1163,15 +1186,17 @@ bool Application::m_Init()
 
 #ifdef USC_IOS
 	/*
-		iOS hands out a single fullscreen window and reports it in points, while the
-		framebuffer is the native pixel buffer of the screen. Everything in the
-		engine works in framebuffer pixels, so the resolution is taken from the
+		iOS hands out a single fullscreen window, so the resolution is taken from the
 		window that was actually created instead of from what was requested above.
+		The window is created in points (SDL_WINDOW_ALLOW_HIGHDPI is not set), and
+		that is the unit the whole engine works in: the viewport, the GUI layout and
+		the normalized touch coordinates all agree on it.
 	*/
 	g_resolution = g_gameWindow->GetWindowSize();
 	g_aspectRatio = (float)g_resolution.x / (float)g_resolution.y;
 	g_gameConfig.Set(GameConfigKeys::ScreenWidth, g_resolution.x);
 	g_gameConfig.Set(GameConfigKeys::ScreenHeight, g_resolution.y);
+	Logf("iOS: window %dx%d, native scale %.2f", Logger::Severity::Info, g_resolution.x, g_resolution.y, iOSPlatform::GetNativeScreenScale());
 #endif
 
 	g_gameWindow->OnKeyPressed.Add(this, &Application::m_OnKeyPressed);
@@ -1274,6 +1299,21 @@ bool Application::m_Init()
 #endif
 #endif
 		nvgCreateFont(g_guiState.vg, "fallback", *Path::Absolute("fonts/NotoSansCJKjp-Regular.otf"));
+	}
+
+	/*
+		The viewport is only implicitly set by SDL when the GL context is created, and
+		on iOS the reported drawable size can change right after the window appears
+		(rotation, home indicator, safe area). Everything renders through g_resolution,
+		so the two have to agree from the very first frame: a viewport that is larger
+		than the buffer only clears part of the screen and a smaller one only fills a
+		corner. SDL_WINDOWEVENT_SIZE_CHANGED corrects it later, but the first frames
+		would already be wrong.
+	*/
+	if (g_gl && g_resolution.x > 0 && g_resolution.y > 0)
+	{
+		g_gl->SetViewport(g_resolution);
+		glScissor(0, 0, g_resolution.x, g_resolution.y);
 	}
 
 #ifndef USC_IOS

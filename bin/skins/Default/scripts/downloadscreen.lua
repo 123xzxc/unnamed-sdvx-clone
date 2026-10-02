@@ -31,6 +31,8 @@ end
 local searchText = gfx.CreateLabel("",5,0)
 local searchIndex = 1
 local searchInputActive = false
+local loadingFailed = false
+local loadingError = ""
 
 local cachepath = path.Absolute("skins/" .. game.GetSkin() .. "/nautica.json")
 local levelcursor = 0
@@ -77,10 +79,21 @@ end
 
 function gotSongsCallback(response)
     if response.status ~= 200 then 
+        -- The iPadOS build can be compiled without HTTP support (USC_IOS_HTTP=OFF,
+        -- the CI default), in which case every request fails with status 0 and the
+        -- screen would stay on "LOADING..." forever. Report it instead, and stop
+        -- the endless retry that load_more() would otherwise trigger.
+        if response.status == 0 then
+            loading = false
+            loadingFailed = true
+            loadingError = response.error or "HTTP support is not available in this build"
+            return
+        end
         error() 
         return 
     end
     local jsondata = json.decode(response.text)
+    loadingFailed = false
     for i,song in ipairs(jsondata.data) do
         addsong(song)
     end
@@ -151,7 +164,7 @@ function render_song(song, x,y)
 end
 
 function load_more()
-    if nextUrl ~= nil and not loading then
+    if nextUrl ~= nil and not loading and not loadingFailed then
         Http.GetAsync(nextUrl, header, gotSongsCallback)
         loading = true
     end
@@ -170,6 +183,23 @@ end
 function render_loading()
     if not loading then return end
     gfx.Save()
+    if loadingFailed then
+        gfx.ResetTransform()
+        gfx.BeginPath()
+        gfx.FillColor(0,0,0,200)
+        gfx.Rect(0, resY/2 - 90, resX, 180)
+        gfx.Fill()
+        gfx.FillColor(255,120,120)
+        gfx.TextAlign(gfx.TEXT_ALIGN_CENTER, gfx.TEXT_ALIGN_MIDDLE)
+        gfx.FontSize(46)
+        gfx.Text("Song downloads are not available in this build", resX/2, resY/2 - 40)
+        gfx.FontSize(30)
+        gfx.FillColor(230,230,230)
+        gfx.Text("Internet Ranking / HTTP support was disabled at compile time.", resX/2, resY/2 + 5)
+        gfx.Text("Copy song folders into the app's Files folder to play them.", resX/2, resY/2 + 45)
+        gfx.Restore()
+        return
+    end
     gfx.ResetTransform()
     gfx.BeginPath()
     gfx.MoveTo(resX, resY)
