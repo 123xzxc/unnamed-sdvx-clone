@@ -191,6 +191,9 @@ namespace Graphics
 		Delegate<const Vector2i&> OnResized;
 		Delegate<const Vector2i&> OnMoved;
 		Delegate<bool> OnFocusChanged;
+		// A gamepad was connected or disconnected; listeners should re-read
+		// GetNumGamepads()/GetGamepadDeviceNames().
+		Delegate<> OnGamepadListChanged;
 		Delegate<const char*> OnFileDropped;
 
 	private:

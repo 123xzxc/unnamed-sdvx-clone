@@ -27,7 +27,15 @@ namespace Graphics
 		SDL()
 		{
 			SDL_SetMainReady();
-			int r = SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK);
+			/*
+				SDL_INIT_GAMECONTROLLER is required on iOS: MFi and Xbox pads are
+				only exposed with the standard button/axis layout through SDL's
+				GameController API. The raw joystick interface reports their
+				physical buttons in an arbitrary order, so the game's controller
+				bindings (which assume an Xbox style layout) did not match anything
+				and the pad looked unrecognised.
+			*/
+			int r = SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER);
 			if (r != 0)
 			{
 				Logf("SDL_Init Failed: %s", Logger::Severity::Error, SDL_GetError());
@@ -338,19 +346,19 @@ namespace Graphics
 					else if (evt.type == SDL_EventType::SDL_JOYBUTTONDOWN)
 					{
 						Gamepad_Impl **gp = m_joystickMap.Find(evt.jbutton.which);
-						if (gp)
+						if (gp && !gp[0]->IsUsingController())
 							gp[0]->HandleInputEvent(evt.jbutton.button, true, delta);
 					}
 					else if (evt.type == SDL_EventType::SDL_JOYBUTTONUP)
 					{
 						Gamepad_Impl **gp = m_joystickMap.Find(evt.jbutton.which);
-						if (gp)
+						if (gp && !gp[0]->IsUsingController())
 							gp[0]->HandleInputEvent(evt.jbutton.button, false, delta);
 					}
 					else if (evt.type == SDL_EventType::SDL_JOYAXISMOTION)
 					{
 						Gamepad_Impl **gp = m_joystickMap.Find(evt.jaxis.which);
-						if (gp)
+						if (gp && !gp[0]->IsUsingController())
 							gp[0]->HandleAxisEvent(evt.jaxis.axis, evt.jaxis.value);
 					}
 					else if (evt.type == SDL_EventType::SDL_JOYHATMOTION)
@@ -358,6 +366,44 @@ namespace Graphics
 						Gamepad_Impl **gp = m_joystickMap.Find(evt.jhat.which);
 						if (gp)
 							gp[0]->HandleHatEvent(evt.jhat.hat, evt.jhat.value);
+					}
+					/*
+						When a device is open through the GameController interface SDL
+						reports both joystick and controller events, and the button and
+						axis numbers in the joystick ones are the raw hardware ones.
+						The controller events carry the standardised numbering that the
+						game's bindings expect, so only they are forwarded for those
+						devices (see the IsUsingController() guards above).
+					*/
+					else if (evt.type == SDL_EventType::SDL_CONTROLLERBUTTONDOWN)
+					{
+						Gamepad_Impl **gp = m_joystickMap.Find(evt.cbutton.which);
+						if (gp)
+							gp[0]->HandleInputEvent(evt.cbutton.button, true, delta);
+					}
+					else if (evt.type == SDL_EventType::SDL_CONTROLLERBUTTONUP)
+					{
+						Gamepad_Impl **gp = m_joystickMap.Find(evt.cbutton.which);
+						if (gp)
+							gp[0]->HandleInputEvent(evt.cbutton.button, false, delta);
+					}
+					else if (evt.type == SDL_EventType::SDL_CONTROLLERAXISMOTION)
+					{
+						Gamepad_Impl **gp = m_joystickMap.Find(evt.caxis.which);
+						if (gp)
+							gp[0]->HandleAxisEvent(evt.caxis.axis, evt.caxis.value);
+					}
+					/*
+						Pads are commonly connected after the game has started
+						(especially over Bluetooth on iOS), so the settings screen
+						is told to re-scan its device list.
+					*/
+					else if (evt.type == SDL_EventType::SDL_CONTROLLERDEVICEADDED ||
+							 evt.type == SDL_EventType::SDL_CONTROLLERDEVICEREMOVED ||
+							 evt.type == SDL_EventType::SDL_JOYDEVICEADDED ||
+							 evt.type == SDL_EventType::SDL_JOYDEVICEREMOVED)
+					{
+						outer.OnGamepadListChanged.Call();
 					}
 					else if (evt.type == SDL_EventType::SDL_MOUSEBUTTONDOWN)
 					{
@@ -882,7 +928,13 @@ namespace Graphics
 		if (newGamepad)
 		{
 			m_impl->m_gamepads.Add(deviceIndex, newGamepad);
-			m_impl->m_joystickMap.Add(SDL_JoystickInstanceID(gamepadImpl->m_joystick), gamepadImpl);
+			/*
+				Both joystick and controller events identify the device by this
+				instance id, so the map is keyed on it either way.
+			*/
+			const SDL_JoystickID instanceId = gamepadImpl->GetInstanceID();
+			if (instanceId >= 0)
+				m_impl->m_joystickMap.Add(instanceId, gamepadImpl);
 		}
 		return Utility::CastRef<Gamepad_Impl, Gamepad>(newGamepad);
 	}

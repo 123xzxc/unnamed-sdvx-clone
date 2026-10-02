@@ -20,7 +20,7 @@ on:
       http_enabled:
         description: 'Build with HTTP support (Internet Ranking / skin downloads)'
         type: boolean
-        default: false
+        default: true
 
 jobs:
   ios_build:
@@ -70,12 +70,12 @@ jobs:
 
       - name: Build iOS dependencies
         run: |
-          # cpr/libcurl is the fragile part of the iOS dependency set and is only
-          # needed for Internet Ranking and skin downloads. With HTTP off it is
-          # dropped from the manifest so the game builds against the API-compatible
-          # cpr stub instead (see platform/ios/stubs/cpr and USC_IOS_HTTP below).
+          # cpr/libcurl is the fragile part of the iOS dependency set. HTTP is on
+          # by default because "Get Songs" (the in-game chart browser) needs it;
+          # set http_enabled to false to drop cpr from the manifest and build
+          # against the API-compatible stub instead (see platform/ios/stubs/cpr).
           MANIFEST_DIR="${GITHUB_WORKSPACE}/platform/ios"
-          if [ "${{ inputs.http_enabled }}" != "true" ]; then
+          if [ "${{ inputs.http_enabled }}" == "false" ]; then
             MANIFEST_DIR="${BUILD_DIR}/nohttp-manifest"
             python3 platform/ios/scripts/make_nohttp_manifest.py \
               platform/ios/vcpkg.json "${MANIFEST_DIR}/vcpkg.json"
@@ -89,7 +89,7 @@ jobs:
       - name: Configure CMake
         run: |
           EXTRA=""
-          if [ "${{ inputs.http_enabled }}" != "true" ]; then
+          if [ "${{ inputs.http_enabled }}" == "false" ]; then
             EXTRA="-DUSC_IOS_HTTP=OFF"
           fi
 
@@ -112,7 +112,7 @@ jobs:
         continue-on-error: true
         run: |
           EXTRA=""
-          if [ "${{ inputs.http_enabled }}" != "true" ]; then
+          if [ "${{ inputs.http_enabled }}" == "false" ]; then
             EXTRA="-DUSC_IOS_HTTP=OFF"
           fi
 

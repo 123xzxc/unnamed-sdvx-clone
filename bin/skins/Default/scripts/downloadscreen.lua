@@ -181,9 +181,10 @@ function render_cursor()
 end
 
 function render_loading()
-    if not loading then return end
-    gfx.Save()
+    -- The failure notice is not a loading state: "loading" is cleared by the
+    -- callback, so gating this on it hid the message and left the screen blank.
     if loadingFailed then
+        gfx.Save()
         gfx.ResetTransform()
         gfx.BeginPath()
         gfx.FillColor(0,0,0,200)
@@ -200,6 +201,8 @@ function render_loading()
         gfx.Restore()
         return
     end
+    if not loading then return end
+    gfx.Save()
     gfx.ResetTransform()
     gfx.BeginPath()
     gfx.MoveTo(resX, resY)

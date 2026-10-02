@@ -440,6 +440,9 @@ bool SettingsPageCollection::Init()
 	InitStyles();
 
 	g_gameWindow->OnMousePressed.Add(this, &SettingsPageCollection::OnMousePressed);
+	// A pad is often connected while the game is already running, so the page
+	// list is rebuilt when one appears or disappears.
+	g_gameWindow->OnGamepadListChanged.Add(this, &SettingsPageCollection::OnGamepadListChanged);
 	m_forcePortrait = g_gameConfig.GetBool(GameConfigKeys::ForcePortrait);
 
 	return true;
@@ -455,6 +458,14 @@ SettingsPageCollection::~SettingsPageCollection()
 	g_application->ApplySettings();
 
 	g_gameWindow->OnMousePressed.RemoveAll(this);
+	g_gameWindow->OnGamepadListChanged.RemoveAll(this);
+}
+
+void SettingsPageCollection::OnGamepadListChanged()
+{
+	// The input page caches the device names when it is loaded, so it has to be
+	// reloaded for a newly connected pad to show up in the list.
+	Reload();
 }
 
 void SettingsPageCollection::Tick(float deltaTime)

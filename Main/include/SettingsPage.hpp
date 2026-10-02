@@ -215,6 +215,10 @@ private:
 
 	void OnMousePressed(MouseButton button);
 	int GetPageIndFromMousePos(const Vector2i& mousePos) const;
+
+	// A gamepad was connected or disconnected, so the cached device list on the
+	// input page has to be rebuilt.
+	void OnGamepadListChanged();
 };
 
 template<typename ConstCharVec>
