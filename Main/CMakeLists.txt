@@ -49,7 +49,18 @@ enable_precompiled_headers("${MAIN_SRC}" ${PCH_SRC})
 include_directories(Audio GUI .)
 if(USC_IOS)
     # The iOS build produces an application bundle (.app).
-    add_executable(usc-game MACOSX_BUNDLE ${MAIN_SRC} ${PCH_FILES})
+    #
+    # The platform layer is listed here, at target creation time, instead of
+    # being appended with target_sources() from platform/ios/CMakeLists.txt: the
+    # Xcode generator only puts sources that exist when the target is created
+    # into usc-game.LinkFileList, so sources added later are compiled but never
+    # linked (which left '_main' undefined).
+    file(GLOB USC_IOS_PLATFORM_SOURCES
+        "${CMAKE_SOURCE_DIR}/platform/ios/src/*.cpp"
+        "${CMAKE_SOURCE_DIR}/platform/ios/src/*.mm"
+        "${CMAKE_SOURCE_DIR}/platform/ios/src/*.c"
+    )
+    add_executable(usc-game MACOSX_BUNDLE ${MAIN_SRC} ${PCH_FILES} ${USC_IOS_PLATFORM_SOURCES})
 else()
     add_executable(usc-game ${MAIN_SRC} ${RESOURCE_SRC} ${PCH_FILES})
 endif()

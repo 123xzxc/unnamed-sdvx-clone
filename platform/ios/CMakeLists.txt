@@ -32,7 +32,10 @@ file(GLOB USC_IOS_HEADERS
     "${USC_IOS_SRC_DIR}/*.hpp"
 )
 
-target_sources(usc-game PRIVATE ${USC_IOS_SOURCES} ${USC_IOS_HEADERS})
+# Only the headers are added here: the sources are part of add_executable() in
+# Main/CMakeLists.txt, because the Xcode generator ignores sources that are
+# appended to a target after it has been created.
+target_sources(usc-game PRIVATE ${USC_IOS_HEADERS})
 target_include_directories(usc-game PRIVATE ${USC_IOS_SRC_DIR})
 
 # The platform sources include the game precompiled header as "stdafx.h"; Main/ is
