@@ -16,6 +16,10 @@
 #include <string.h>
 #include <time.h>
 
+#if defined(__APPLE__)
+#include <TargetConditionals.h>	/* TARGET_OS_IPHONE */
+#endif
+
 #include "lua.h"
 
 #include "lauxlib.h"
@@ -140,6 +144,20 @@ static time_t l_checktime (lua_State *L, int arg) {
 
 static int os_execute (lua_State *L) {
   const char *cmd = luaL_optstring(L, 1, NULL);
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+  /*
+  ** The iOS SDK declares 'system' unavailable: a sandboxed application is not
+  ** allowed to spawn a shell, so the command can never run. Fail the call from
+  ** the script instead of refusing to compile (the same approach Lua 5.4 takes
+  ** for its LUA_USE_IOS configuration).
+  */
+  if (cmd == NULL) {
+    lua_pushboolean(L, 0);  /* there is no shell */
+    return 1;
+  }
+  errno = ENOSYS;
+  return luaL_execresult(L, -1);
+#else
   int stat = system(cmd);
   if (cmd != NULL)
     return luaL_execresult(L, stat);
@@ -147,6 +165,7 @@ static int os_execute (lua_State *L) {
     lua_pushboolean(L, stat);  /* true if there is a shell */
     return 1;
   }
+#endif
 }
 
 

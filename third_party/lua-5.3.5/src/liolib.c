@@ -17,6 +17,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(__APPLE__)
+#include <TargetConditionals.h>	/* TARGET_OS_IPHONE */
+#endif
+
 #include "lua.h"
 
 #include "lauxlib.h"
@@ -54,7 +58,11 @@ static int l_checkmode (const char *mode) {
 
 #if !defined(l_popen)		/* { */
 
-#if defined(LUA_USE_POSIX)	/* { */
+/*
+** iOS has no process spawning: popen/pclose are unavailable there, so the ISO C
+** branch below is used and io.popen() reports that it is unsupported.
+*/
+#if defined(LUA_USE_POSIX) && !(defined(__APPLE__) && TARGET_OS_IPHONE)	/* { */
 
 #define l_popen(L,c,m)		(fflush(NULL), popen(c,m))
 #define l_pclose(L,file)	(pclose(file))
