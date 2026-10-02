@@ -19,29 +19,61 @@ int32 __stdcall WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCm
 	return ret;
 }
 #else
-// Linux and iOS entry point.
-//
-// On iOS SDL2 redefines main() to SDL_main and bootstraps it from UIApplicationMain
-// through its own UIKit app delegate, so this function must NOT be hidden behind
-// SDL_MAIN_HANDLED (that define is only used by the console test targets).
-//
-// SDL_main.h declares SDL_main() as extern "C" and SDL's UIKit delegate calls it
-// through a plain function pointer, so the definition has to be extern "C" as
-// well: without it the compiler emits a C++ mangled symbol
-// (__Z8SDL_main...) and the link fails with '_SDL_main not found'.
-#ifdef USC_IOS
-extern "C"
-#endif
+// Linux entry point.
 int main(int argc, char** argv)
 {
-#ifdef USC_IOS
-	// Must happen before the SDL window is created.
-	iOSPlatform::Init();
-#endif
 	new Application();
 	g_application->SetCommandLine(argc, argv);
 	int32 ret = g_application->Run();
 	delete g_application;
 	return ret;
+}
+#endif
+
+#ifdef USC_IOS
+/*
+	iPadOS/iOS entry point.
+
+	SDL2 does not provide a main() for this build: upstream compiles one into
+	libSDL2main.a (src/main/uikit/SDL_uikit_main.c), but the vcpkg package of SDL2
+	only ships libSDL2.a. SDL's UIKit application delegate still calls a function
+	named SDL_main through UIApplicationMain, so the application has to provide
+	both halves itself:
+
+	  * SDL_main() with C linkage, because that is how SDL_main.h declares it and
+	    SDL_UIKitRunApp takes a plain function pointer, and
+	  * main(), which is what the linker and UIApplicationMain look for.
+
+	SDL.h (through SDL_main.h) normally renames main() to SDL_main with a macro,
+	but only for translation units that include SDL.h. This file does not - it
+	uses the SDL platform headers directly - so both functions are defined with
+	their real names here and the renaming macro is never involved.
+
+	iOSPlatform::Init() has to run before SDL creates its window.
+*/
+#include <SDL2/SDL_main.h>
+
+// stdafx.h pulls in SDL.h, whose SDL_main.h defines "main" as "SDL_main" for
+// every translation unit. The two functions below need their real names, so the
+// macro is dropped for the rest of this file (the guarded #ifndef also covers a
+// future SDL that stops defining it).
+#ifdef main
+#undef main
+#endif
+
+extern "C" int SDL_main(int argc, char* argv[])
+{
+	iOSPlatform::Init();
+
+	new Application();
+	g_application->SetCommandLine(argc, argv);
+	int32 ret = g_application->Run();
+	delete g_application;
+	return ret;
+}
+
+int main(int argc, char* argv[])
+{
+	return SDL_UIKitRunApp(argc, argv, SDL_main);
 }
 #endif

@@ -54,11 +54,10 @@ if(USC_IOS)
     # being appended with target_sources() from platform/ios/CMakeLists.txt: the
     # Xcode generator only puts sources that exist when the target is created
     # into usc-game.LinkFileList, so sources added later are compiled but never
-    # linked (which left '_main' undefined).
+    # linked.
     file(GLOB USC_IOS_PLATFORM_SOURCES
         "${CMAKE_SOURCE_DIR}/platform/ios/src/*.cpp"
         "${CMAKE_SOURCE_DIR}/platform/ios/src/*.mm"
-        "${CMAKE_SOURCE_DIR}/platform/ios/src/*.c"
     )
     add_executable(usc-game MACOSX_BUNDLE ${MAIN_SRC} ${PCH_FILES} ${USC_IOS_PLATFORM_SOURCES})
 else()
@@ -78,13 +77,12 @@ target_compile_definitions(usc-game PRIVATE VERSION_MAJOR=${PROJECT_VERSION_MAJO
 target_compile_definitions(usc-game PRIVATE VERSION_PATCH=${PROJECT_VERSION_PATCH})
 
 if(USC_IOS)
-    # On iOS SDL owns the entry point: SDL_main.h renames the application's main()
-    # to SDL_main() (and SDL.h only includes that header when SDL_MAIN_AVAILABLE
-    # is defined, which is why it is set here), while the real main() comes from
-    # SDL's UIKit stub. SDL only ships that stub inside libSDL2main.a when SDL
-    # itself is compiled from source; the vcpkg package links SDL2 as a static
-    # library instead, so the stub is built here from the SDL2 headers.
-    target_compile_definitions(usc-game PRIVATE SDL_MAIN_AVAILABLE)
+    # SDL_main.h normally renames the application's main() to SDL_main(), and only
+    # declares SDL_UIKitRunApp when it is included for this platform. Main.cpp
+    # provides the whole entry point itself (see the comment there), so the header
+    # is included by that file directly and no extra definition is needed.
+    # SDL_MAIN_AVAILABLE is deliberately NOT set: it would rename main() in every
+    # translation unit that includes SDL.h, and Main.cpp wants both names.
 endif()
 
 find_package (Git)

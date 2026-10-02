@@ -25,7 +25,6 @@ endif()
 file(GLOB USC_IOS_SOURCES
     "${USC_IOS_SRC_DIR}/*.cpp"
     "${USC_IOS_SRC_DIR}/*.mm"
-    "${USC_IOS_SRC_DIR}/*.c"
 )
 file(GLOB USC_IOS_HEADERS
     "${USC_IOS_SRC_DIR}/*.h"
