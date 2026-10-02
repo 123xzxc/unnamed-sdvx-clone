@@ -130,6 +130,16 @@ jobs:
           python3 platform/ios/scripts/check_all_sources.py \
             "${BUILD_DIR}/diagnose/compile_commands.json" "${GITHUB_WORKSPACE}"
 
+      - name: Dump entry point symbols
+        # Diagnostic: shows whether Main.o and the platform objects export the
+        # entry point the linker is looking for (_main) or a renamed one.
+        continue-on-error: true
+        run: |
+          for object in $(find "${BUILD_DIR}/project" -name 'Main.o' -o -name 'iOSMain.o' 2>/dev/null); do
+            echo "== ${object}"
+            xcrun nm -gU "${object}" | grep -iE 'main|SDL_main' || echo "  (no main/SDL_main symbols)"
+          done
+
       - name: Build
         run: |
           # No certificate exists on the runner, so every signing step is disabled.
