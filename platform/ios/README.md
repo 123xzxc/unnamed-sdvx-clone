@@ -261,3 +261,20 @@ IPA 里没有任何证书和描述文件，必须在本机重新签名后才能�
  * **Get Songs 一直显示 LOADING...**。CI 默认用 `-DUSC_IOS_HTTP=OFF` 构建，请求永远
    返回 `status = 0`，而 lua 只在 `status ~= 200` 时 `error()`，界面就永远停在加载中。
    现在会明确提示"这个构建没有 HTTP 支持"，并停止无意义的重复请求。
+ * **Get Songs 点进去是全空白的**。失败回调会同时把 `loading` 置回 `false` 并设置
+   `loadingFailed`，而 `render_loading()` 的第一行是 `if not loading then return end`，
+   于是失败提示永远画不出来，屏幕上什么都没有。现在画提示的判断在 `loading` 门控之前。
+ * **HTTP 现在是 iOS 构建的默认值**。`Get Songs` 是游戏内置的谱面浏览器，没有
+   HTTP 就只是一块空白，所以 CI 默认带着 `cpr`/`libcurl` 构建；要回到
+   `-DUSC_IOS_HTTP=OFF` 的 stub 构建，把 `workflow_dispatch` 的 `http_enabled`
+   改成 `false`（或者本地 `-DUSC_IOS_HTTP=OFF`）即可。
+ * **字体图集的残留数据会把 UI 画花**（标题碎成白色块、BACK 按钮里出现放大的
+   `US...` 图像）。`Graphics/src/Image.cpp` 的 `Allocate()` 用 `new Colori[]` 分配
+   图集却从不初始化，而 `SpriteMap` 只写入真正用到的字形区域，剩下的堆内存就直接
+   进了 GPU 纹理。Windows 上堆页恰好是清零的所以看不出来。`Allocate()`/`ReSize()`
+   现在会 `memset` 清零。
+ * **Xbox / MFi 手柄认不出来**。`SDL_Init()` 以前没有请求
+   `SDL_INIT_GAMECONTROLLER`，而且所有设备都走 `SDL_JoystickOpen()`，原始 joystick
+   的按键编号和默认键位假设的 Xbox 布局对不上，于是按什么都没反应。现在有映射的设备
+   走 `SDL_GameControllerOpen()`（其余回退到原始设备），并且只把 `SDL_CONTROLLER*`
+   事件喂给这类设备，热插拔时还会让设置页面重建设备列表。
