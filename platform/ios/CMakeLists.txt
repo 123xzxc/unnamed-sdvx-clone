@@ -1,15 +1,18 @@
 # iPadOS / iOS platform integration.
 #
-# Only added to the build when CMAKE_SYSTEM_NAME is "iOS". It
+# Included by Main/CMakeLists.txt when building for iOS (USC_IOS). It
 #   * compiles the platform layer (sandbox paths, on-screen touch controller)
 #     into the game executable,
 #   * turns that executable into an application bundle and
 #   * copies the game data that ships with the app into the bundle resources.
 #
+# It is included from the directory that creates the usc-game target because it
+# extends that target.
+#
 # The dependencies themselves (SDL2, freetype, libvorbis, libarchive, ...) come
 # from vcpkg's arm64-ios / x64-ios triplets; see platform/ios/README.md.
 
-set(USC_IOS_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+set(USC_IOS_DIR ${CMAKE_CURRENT_LIST_DIR})
 set(USC_IOS_SRC_DIR ${USC_IOS_DIR}/src)
 
 if(NOT USC_IOS_BUNDLE_ID)
