@@ -24,6 +24,14 @@ int32 __stdcall WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCm
 // On iOS SDL2 redefines main() to SDL_main and bootstraps it from UIApplicationMain
 // through its own UIKit app delegate, so this function must NOT be hidden behind
 // SDL_MAIN_HANDLED (that define is only used by the console test targets).
+//
+// SDL_main.h declares SDL_main() as extern "C" and SDL's UIKit delegate calls it
+// through a plain function pointer, so the definition has to be extern "C" as
+// well: without it the compiler emits a C++ mangled symbol
+// (__Z8SDL_main...) and the link fails with '_SDL_main not found'.
+#ifdef USC_IOS
+extern "C"
+#endif
 int main(int argc, char** argv)
 {
 #ifdef USC_IOS
