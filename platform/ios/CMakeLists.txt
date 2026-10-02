@@ -100,6 +100,7 @@ set(USC_IOS_FRAMEWORKS
     CoreMotion
     CoreHaptics
     GameController
+    CoreBluetooth
     OpenGLES
     Metal
 )
