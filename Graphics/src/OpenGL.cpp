@@ -73,8 +73,20 @@ namespace Graphics
 
 #ifdef EMBEDDED
 		SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+#ifdef USC_IOS
+		/*
+			The embedded renderer path uses OpenGL ES 3 features (vertex array
+			objects, GL_RGBA8 textures, GL_READ_FRAMEBUFFER, GL_MIRRORED_REPEAT,
+			32 bit vertex data), so the iOS context has to be ES 3.0. The shaders
+			stay GLSL ES 1.00 / "#version 100", which is still valid in an ES 3.0
+			context.
+		*/
+		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+#else
 		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
 		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+#endif
 #else
 		SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
 		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
