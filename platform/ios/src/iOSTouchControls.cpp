@@ -72,6 +72,8 @@ namespace
 		// Corner rows the BT/FX buttons are anchored to.
 		float btRowY = 0.0f;
 		float fxRowY = 0.0f;
+		// Top edge of the panel the row is drawn on.
+		float padTop = 0.0f;
 
 		Vector2 fxPos[2];
 		Vector2 fxSize;
@@ -90,41 +92,45 @@ namespace
 		knobPos[1] = Vector2(0.910f * w, 0.460f * h);
 
 			/*
-				The four buttons are the two corners of the console layout, not one
-				row: the left hand plays BT-A/B/C plus FX-L, the right hand plays
-				BT-D plus FX-R. They also have to sit on the substrate they are drawn
-				with. The old single row was wrong on both counts: the rounded
-				rectangle behind it only covered x < 0.5w, which put BT-C, BT-D and
-				FX-R past the end of the panel, and C was placed to the right of D
-				rather than between B and D.
+				The panel is split in half and each hand gets one side, laid out
+				from the screen edge inwards:
 
-				Splitting the panel in half gives both hands the same amount of room,
-				so the layout is symmetric: FX-L, A, B, C on the left, FX-R, D on the
-				right, both read from the outside in.
+					| FX-L  A  B  C          D  FX-R |
+
+				The wide FX buttons sit in the outermost corners because that is
+				where a thumb naturally rests on a tablet; the round BT buttons
+				come next, with BT-C and BT-D facing the middle of the screen.
+
+				The row has to be laid out in screen widths, not in multiples of
+				the button radius: a radius derived from the screen height is much
+				smaller than the width available, so radius based steps left a hole
+				in the middle of the panel and pushed FX-L on top of BT-A.
 			*/
 			const float padHalfH = 0.105f * h;
-			btRadius = 0.070f * h;
+			btRadius = 0.062f * h;
 			btRowY = 0.885f * h - padHalfH;
+			padTop = btRowY - padHalfH;
 
-			// Half of the screen minus a small margin; the first button is one
-			// radius plus a gap away from that edge.
-			const float leftEdge = 0.030f * w;
-			const float rightEdge = 0.970f * w;
-			const float gap = btRadius * 0.35f;
-			const float step = btRadius * 2.0f + gap;
+			// Anchor points and the space between neighbouring controls, all as
+			// fractions of the screen width so the row always spans the panel.
+			const float edgeMargin = 0.022f * w;
+			const float gap = 0.022f * w;
 
-			// BT-A/B/C, left of the screen, read from the outside in.
-			for(int i = 0; i < 3; i++)
-				btPos[i] = Vector2(leftEdge + btRadius + step * (float)i, btRowY);
-			// BT-D, right of the screen, mirrored.
-			btPos[3] = Vector2(rightEdge - btRadius, btRowY);
-
-			// The wide effect buttons sit in the outermost corners, between the
-			// knobs and the last BT button of their hand.
-			fxSize = Vector2(0.048f * w, 0.150f * h);
+			fxSize = Vector2(0.052f * w, 0.150f * h);
 			fxRowY = btRowY;
-			fxPos[0] = Vector2(leftEdge + fxSize.x * 0.5f, fxRowY); // FX-L
-			fxPos[1] = Vector2(rightEdge - fxSize.x * 0.5f, fxRowY); // FX-R
+
+			// FX-L and FX-R are flush with the left/right screen edges.
+			fxPos[0] = Vector2(edgeMargin + fxSize.x * 0.5f, fxRowY);
+			fxPos[1] = Vector2(w - edgeMargin - fxSize.x * 0.5f, fxRowY);
+
+			// BT-A/B/C start right of FX-L and march towards the middle.
+			const float btStepX = btRadius * 2.0f + gap;
+			const float btFirstX = edgeMargin + fxSize.x + gap + btRadius;
+			for(int i = 0; i < 3; i++)
+				btPos[i] = Vector2(btFirstX + btStepX * (float)i, btRowY);
+
+			// BT-D mirrors FX-R on the other side.
+			btPos[3] = Vector2(w - edgeMargin - fxSize.x * 2.0f - gap * 2.0f - btRadius, btRowY);
 
 			cornerSize = Vector2(0.085f * w, 0.075f * h);
 			startPos = Vector2(0.065f * w, 0.075f * h);
@@ -543,17 +549,18 @@ void iOSTouchControls_Impl::Render()
 		playfield and it is impossible to tell where the panel actually is.
 	*/
 	{
-		const float rowTop = layout.btRowY - 0.105f * resolution.y;
+		const float rowTop = layout.padTop;
 		const float halfW = 0.5f * resolution.x;
-		const float radius = 0.03f * resolution.y;
+		const float radius = 0.04f * resolution.y;
+		const float padH = resolution.y - rowTop;
 
 		nvgBeginPath(vg);
-		nvgRoundedRect(vg, 0.0f, rowTop, halfW, -rowTop, radius);
+		nvgRoundedRect(vg, 0.0f, rowTop, halfW, padH, radius);
 		nvgFillColor(vg, nvgRGBAf(0.05f, 0.06f, 0.09f, 0.22f));
 		nvgFill(vg);
 
 		nvgBeginPath(vg);
-		nvgRoundedRect(vg, halfW, rowTop, halfW, -rowTop, radius);
+		nvgRoundedRect(vg, halfW, rowTop, halfW, padH, radius);
 		nvgFillColor(vg, nvgRGBAf(0.05f, 0.06f, 0.09f, 0.22f));
 		nvgFill(vg);
 	}

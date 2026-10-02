@@ -38,6 +38,13 @@ namespace Graphics
 			if(m_nDataLength == 0)
 				return;
 			m_pData = new Colori[m_nDataLength];
+			// The buffer has to start out transparent. Callers such as SpriteMap
+			// only ever write the regions they use, so anything left uninitialised
+			// ends up in the texture that is uploaded to the GPU: the font atlas
+			// showed random heap contents as garbage blocks next to the glyphs.
+			// (Windows happened to hand out zeroed pages, which is why this only
+			// showed up on iOS.)
+			memset(m_pData, 0, m_nDataLength * sizeof(Colori));
 		}
 
 		void SetSize(Vector2i size)
@@ -53,6 +60,7 @@ namespace Graphics
 				return;
 			}
 			Colori* new_pData = new Colori[new_DataLength];
+			memset(new_pData, 0, new_DataLength * sizeof(Colori));
 
 			for (int32 ix = 0; ix < size.x; ++ix){
 				for (int32 iy = 0; iy < size.y; ++iy){
