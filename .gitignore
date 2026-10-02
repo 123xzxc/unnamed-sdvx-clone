@@ -68,3 +68,7 @@ Makefile
 docs/build
 docs/source/_build
 
+
+# Python bytecode
+__pycache__/
+*.pyc
