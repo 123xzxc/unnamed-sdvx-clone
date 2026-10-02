@@ -9,6 +9,8 @@ The game can be built for iPadOS. The port keeps the desktop builds untouched: i
 the existing OpenGL ES (`EMBEDDED`) renderer, adds an on-screen controller that feeds the
 normal input devices, and puts all game data into the app's Documents folder.
 Build instructions and the list of changes are in [`platform/ios/README.md`](platform/ios/README.md).
+An unsigned `.ipa` is built by the [`iOS Build` workflow](.github/workflows/ios.yml) and can be
+re-signed locally; see section 7 of that document.
 
 ### [**Download latest Windows build**](https://drewol.me/Downloads/Game.zip)
 

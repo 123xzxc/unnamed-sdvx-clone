@@ -5,8 +5,10 @@
 `USC_IOS` 宏隔离。
 
 > **重要**：iOS 二进制只能在 macOS + Xcode + iOS SDK 上编译。本目录中的代码是在
-> Windows 上编写和静态检查的，**尚未在真机/模拟器上编译验证过**。第一次构建时请
-> 预期需要少量修正（主要是第三方依赖与签名相关的细节）。
+> Windows 上编写并静态检查的，完整的 arm64 真机构建由
+> [`.github/workflows/ios.yml`](../.github/workflows/ios.yml)（GitHub Actions 的
+> macOS 运行器）负责，目前已经可以稳定产出未签名的 `usc-game-unsigned.ipa`，
+> 见第 7 节。桌面版源码不受任何影响。
 
 ---
 
@@ -190,3 +192,49 @@ USC_IOS_HTTP=OFF ./build.sh all
 
 另外 `platform/ios/stubs/cpr/cpr.h` 为 `cpr::AsyncResponse` 补齐了 `wait_for()`，
 因为 `ScoreScreen` 会先轮询再取结果；没有它的话 `USC_IOS_HTTP=OFF` 的构建无法编译。
+
+---
+
+## 7. GitHub Actions 构建与自签安装
+
+推送到 `develop`（或在 Actions 页面手动触发 `workflow_dispatch`）会运行
+`.github/workflows/ios.yml`：macOS 运行器上用 vcpkg 的 `arm64-ios` triplet 构建
+依赖（有缓存），再用 Xcode 生成器编译，全程关闭签名，最后把 `.app` 打成 IPA。一次
+完整运行大约 7 分钟。
+
+产物在运行页面的 Artifacts 里，名字是 `usc-game-ios-unsigned-ipa`，解包后有两份文件：
+
+| 文件 | 用途 |
+| --- | --- |
+| `usc-game-unsigned.ipa` | `Payload/usc-game.app` 的 zip 包，未签名，直接喂给自签工具 |
+| `usc-game-app-unsigned.tar.gz` | 原始的 `.app`，iOS App Signer / Sideloadly 也接受 |
+
+Bundle ID 为 `me.drewol.usc`，最低系统要求 iOS 15.0，只编 arm64（真机）。
+
+### 自签侧载
+
+IPA 里没有任何证书和描述文件，必须在本机重新签名后才能安装：
+
+* **AltStore / Sideloadly**：把 IPA 拖进去，用你的 Apple ID 签名安装即可；免费账号
+  签出来的 App 有效期 7 天，到期需要重签。
+* **iOS App Signer + Xcode**：用 `.app`（tar 包解出来，或从 IPA 里解出 `Payload/`），
+  选好证书与描述文件重签，再从 Xcode 的 Devices 窗口安装。
+* **TrollStore**：支持的 iOS 版本上可以直接安装未签名 IPA，不需要证书。
+
+首次运行要在 iPad 上信任证书：设置 → 通用 → VPN 与设备管理 → 开发者 App → 信任。
+如果自签时报 bundle ID 冲突，把 `me.drewol.usc` 换成自己的（例如 `com.you.usc`）后
+重新跑一次 CI，或者直接在 Xcode 里改。
+
+### 这个构建里踩过的坑
+
+* iOS 上的 vcpkg 只提供 `libSDL2.a`，没有 `libSDL2main.a`，所以 `main()` 和
+  `SDL_main()` 都由 `Main/src/Main.cpp` 自己提供（等价于 SDL 的
+  `src/main/uikit/SDL_uikit_main.c`）。
+* 不要在 iOS 上定义 `SDL_MAIN_AVAILABLE`：它会把每个包含 SDL.h 的翻译单元里的
+  `main()` 改名成 `SDL_main()`，于是链接时就没有 `_main` 了。
+* Xcode 生成器只把 `add_executable()` 执行时已经存在的源文件写进
+  `usc-game.LinkFileList`，所以 iOS 平台层的源文件必须在创建目标时一起列出
+  （见 `Main/CMakeLists.txt` 里的 `USC_IOS_PLATFORM_SOURCES`）。
+* `cpr` / `libcurl` 是 iOS 依赖里最脆的一环。默认用 `-DUSC_IOS_HTTP=OFF` 走 API
+  兼容的 stub；需要 Internet Ranking / 皮肤下载时，用 `workflow_dispatch` 勾上
+  `http_enabled`。
