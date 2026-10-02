@@ -43,11 +43,11 @@
 	<true/>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
+	<!-- An empty launch screen dictionary is enough for iOS to treat the app as
+	     supporting every screen size; without it the game would be letterboxed on
+	     newer iPads. It also gives the launch screen a plain background. -->
 	<key>UILaunchScreen</key>
-	<dict>
-		<key>UIColorName</key>
-		<string>LaunchBackground</string>
-	</dict>
+	<dict/>
 
 	<!-- Songs, replays and skins live in Documents so they can be managed from the
 	     Files app, Finder or AirDrop without rebuilding the app. -->

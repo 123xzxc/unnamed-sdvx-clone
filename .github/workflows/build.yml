@@ -1,5 +1,8 @@
 name: Build
-on: [push, workflow_dispatch]
+# The desktop (Windows) build is not part of this fork's iOS work, and it takes
+# over 20 minutes per push. It is kept for reference and can still be started by
+# hand from the Actions tab; only .github/workflows/ios.yml runs automatically.
+on: [workflow_dispatch]
 jobs:
     windows_build:
         name: Windows build
