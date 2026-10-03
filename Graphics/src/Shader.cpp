@@ -85,7 +85,24 @@ namespace Graphics
 				return false;
 
 			in.Read(&sourceStr.front(), sourceStr.size());
+#ifdef USC_IOS
+			/*
+				GLSL ES 1.00 leaves attribute locations to the driver, but
+				Mesh::SetData binds the vertex attributes by index (0, 1, ...)
+				in the order the vertex struct declares them. On the desktop
+				path that works because the shaders pin the locations with
+				layout(location=...); the ES 1.00 shaders used for embedded
+				targets did not, so iOS assigned the attributes freely and the
+				position/texcoord streams were swapped - the track, the lasers
+				and the notes all rendered with the wrong geometry. The iOS
+				context is ES 3.0, so the shaders are compiled as GLSL ES 3.00
+				with the same location convention as the desktop path.
+			*/
+			sourceStr = "#version 300 es\n#define EMBEDDED\n#define target target\n#define texture texture\nprecision mediump float;\n"
+				+ sourceStr;
+#else
 			sourceStr = "#version 100\n#define EMBEDDED\n#define target gl_FragColor\n#define texture texture2D\nprecision mediump float;\n" + sourceStr;
+#endif
 			const GLint programsize = sourceStr.size();
 
 			const char* pChars = *sourceStr;

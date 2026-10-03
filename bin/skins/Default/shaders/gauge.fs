@@ -1,5 +1,6 @@
 #ifdef EMBEDDED
-varying vec2 fsTex;
+in vec2 fsTex;
+layout(location=0) out vec4 target;
 #else
 #extension GL_ARB_separate_shader_objects : enable
 layout(location=1) in vec2 fsTex;

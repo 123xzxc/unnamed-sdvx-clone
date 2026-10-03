@@ -1,7 +1,7 @@
 #ifdef EMBEDDED
-attribute vec2 inPos;
-attribute vec2 inTex;
-varying vec2 fsTex;
+in vec2 inPos;
+in vec2 inTex;
+out vec2 fsTex;
 #else
 #extension GL_ARB_separate_shader_objects : enable
 layout(location=0) in vec2 inPos;

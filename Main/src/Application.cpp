@@ -22,7 +22,18 @@
 #endif
 
 #ifdef EMBEDDED
+#ifdef USC_IOS
+/*
+	The iOS context is OpenGL ES 3.0 and the game's own shaders are compiled as
+	GLSL ES 3.00 for it, so NanoVG uses its ES 3 backend as well instead of the
+	ES 2 one. Both backends end up in the same context; using the ES 3 shaders
+	keeps the two consistent (the ES 2 backend declares its attributes without
+	locations, which is the same pitfall the game shaders had).
+*/
+#define NANOVG_GLES3_IMPLEMENTATION
+#else
 #define NANOVG_GLES2_IMPLEMENTATION
+#endif
 #else
 #define NANOVG_GL3_IMPLEMENTATION
 #endif
@@ -1286,10 +1297,14 @@ bool Application::m_Init()
 			return false;
 		}
 #ifdef EMBEDDED
+#ifdef USC_IOS
+		g_guiState.vg = nvgCreateGLES3(0);
+#else
 #ifdef _DEBUG
 		g_guiState.vg = nvgCreateGLES2(NVG_DEBUG);
 #else
 		g_guiState.vg = nvgCreateGLES2(0);
+#endif
 #endif
 #else
 #ifdef _DEBUG
