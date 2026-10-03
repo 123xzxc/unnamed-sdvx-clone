@@ -1761,7 +1761,11 @@ void Application::m_Cleanup()
 	Discord_Shutdown();
 
 #ifdef EMBEDDED
+#ifdef USC_IOS
+	nvgDeleteGLES3(g_guiState.vg);
+#else
 	nvgDeleteGLES2(g_guiState.vg);
+#endif
 #else
 	nvgDeleteGL3(g_guiState.vg);
 #endif
