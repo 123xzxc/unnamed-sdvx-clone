@@ -10,7 +10,10 @@ struct AsyncRequest
 	String url;
 	int callback;
 
-	AsyncRequest(struct lua_State* luaState, cpr::AsyncResponse asyncResponse, String url, int callback)
+	// url is optional: requests that are not tied to a user visible message
+	// (IR heartbeat/score uploads) leave it empty.
+	AsyncRequest(struct lua_State* luaState, cpr::AsyncResponse asyncResponse, int callback,
+		String url = "")
 		: L(luaState), r(std::move(asyncResponse)), url(url), callback(callback)
 	{
 	}

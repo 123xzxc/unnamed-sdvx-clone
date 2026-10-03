@@ -120,7 +120,7 @@ int SkinHttp::lGetAsync(lua_State * L)
 	String url = luaL_checkstring(L, 2);
 	cpr::Header header = HeaderFromLuaTable(L, 3);
 	int callback = luaL_ref(L, LUA_REGISTRYINDEX);
-	AsyncRequest* r = new AsyncRequest(L, cpr::GetAsync(cpr::Url{ url }, header), url, callback);
+	AsyncRequest* r = new AsyncRequest(L, cpr::GetAsync(cpr::Url{ url }, header), callback, url);
 	m_mutex.lock();
 	m_requests.push(r);
 	m_mutex.unlock();
@@ -133,7 +133,7 @@ int SkinHttp::lPostAsync(lua_State * L)
 	String payload = luaL_checkstring(L, 3);
 	cpr::Header header = HeaderFromLuaTable(L, 4);
 	int callback = luaL_ref(L, LUA_REGISTRYINDEX);
-	AsyncRequest* r = new AsyncRequest(L, cpr::PostAsync(cpr::Url{ url }, cpr::Body{ *payload }, header), url, callback);
+	AsyncRequest* r = new AsyncRequest(L, cpr::PostAsync(cpr::Url{ url }, cpr::Body{ *payload }, header), callback, url);
 	m_mutex.lock();
 	m_requests.push(r);
 	m_mutex.unlock();
