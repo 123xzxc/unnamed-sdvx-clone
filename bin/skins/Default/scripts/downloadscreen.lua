@@ -59,8 +59,13 @@ local needsReload = false
 
 -- A build configured with -DUSC_IOS_HTTP=OFF answers false here, so the screen
 -- can report the missing feature straight away instead of waiting for a request
--- that is guaranteed to fail.
-local httpSupported = dlScreen.HttpSupported == nil or dlScreen.HttpSupported()
+-- that is guaranteed to fail. The call is guarded against a missing function:
+-- reading a field of a nil table raises an error before the screen can show
+-- anything at all.
+local httpSupported = true
+if dlScreen ~= nil and dlScreen.HttpSupported ~= nil then
+    httpSupported = dlScreen.HttpSupported()
+end
 
 function addsong(song)
     if song.jacket_url ~= nil then

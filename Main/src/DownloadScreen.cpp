@@ -41,12 +41,11 @@ bool DownloadScreen::Init()
 	g_gameWindow->OnMouseScroll.Add(this, &DownloadScreen::m_OnMouseScroll);
 	m_bindable = new LuaBindable(m_lua, "dlScreen");
 	m_bindable->AddFunction("Exit", this, &DownloadScreen::m_Exit);
-#ifdef USC_IOS_NO_HTTP
 	// A build that was configured without HTTP can never fetch the song list, so
 	// the script is told up front and reports the missing feature instead of
-	// waiting for a request that is guaranteed to fail.
+	// waiting for a request that is guaranteed to fail. The function exists in
+	// HTTP builds too, where it answers true.
 	m_bindable->AddFunction("HttpSupported", this, &DownloadScreen::m_HttpSupported);
-#endif
 	m_bindable->AddFunction("DownloadArchive", this, &DownloadScreen::m_DownloadArchive);
 	m_bindable->AddFunction("PlayPreview", this, &DownloadScreen::m_PlayPreview);
 	m_bindable->AddFunction("StopPreview", this, &DownloadScreen::m_StopPreview);
@@ -521,13 +520,15 @@ int DownloadScreen::m_GetSongsPath(lua_State * L)
 	return 1;
 }
 
-#ifdef USC_IOS_NO_HTTP
 int DownloadScreen::m_HttpSupported(lua_State * L)
 {
+#ifdef USC_IOS_NO_HTTP
 	lua_pushboolean(L, 0);
+#else
+	lua_pushboolean(L, 1);
+#endif
 	return 1;
 }
-#endif
 
 bool DownloadScreen::m_extractFile(archive * a, String path)
 {
