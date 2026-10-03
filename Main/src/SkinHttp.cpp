@@ -18,6 +18,7 @@ void SkinHttp::m_requestLoop()
 			cr.L = r->L;
 			cr.callback = r->callback;
 			cr.r = r->r.get();
+			cr.url = r->url;
 
 			//push result and pop request
 			m_mutex.lock();
@@ -119,7 +120,7 @@ int SkinHttp::lGetAsync(lua_State * L)
 	String url = luaL_checkstring(L, 2);
 	cpr::Header header = HeaderFromLuaTable(L, 3);
 	int callback = luaL_ref(L, LUA_REGISTRYINDEX);
-	AsyncRequest* r = new AsyncRequest(L, cpr::GetAsync(cpr::Url{ url }, header), callback);
+	AsyncRequest* r = new AsyncRequest(L, cpr::GetAsync(cpr::Url{ url }, header), url, callback);
 	m_mutex.lock();
 	m_requests.push(r);
 	m_mutex.unlock();
@@ -132,7 +133,7 @@ int SkinHttp::lPostAsync(lua_State * L)
 	String payload = luaL_checkstring(L, 3);
 	cpr::Header header = HeaderFromLuaTable(L, 4);
 	int callback = luaL_ref(L, LUA_REGISTRYINDEX);
-	AsyncRequest* r = new AsyncRequest(L, cpr::PostAsync(cpr::Url{ url }, cpr::Body{ *payload }, header), callback);
+	AsyncRequest* r = new AsyncRequest(L, cpr::PostAsync(cpr::Url{ url }, cpr::Body{ *payload }, header), url, callback);
 	m_mutex.lock();
 	m_requests.push(r);
 	m_mutex.unlock();
@@ -172,6 +173,8 @@ void SkinHttp::ProcessCallbacks()
 			//process response
 			lua_rawgeti(cr.L, LUA_REGISTRYINDEX, cr.callback);
 			m_PushResponse(cr.L, cr.r);
+			lua_pushstring(cr.L, *cr.url);
+			lua_setfield(cr.L, -2, "requestUrl");
 			if (lua_pcall(cr.L, 1, 0, 0) != 0)
 			{
 				Logf("Lua error on calling http callback: %s", Logger::Severity::Error, lua_tostring(cr.L, -1));

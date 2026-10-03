@@ -161,6 +161,21 @@ namespace Graphics
 
 		glDisable(GL_DEPTH_TEST);
 		glEnable(GL_CULL_FACE);
+		/*
+			The engine generates its quads counter-clockwise (see
+			MeshGenerators::Quad) and relies on GL_FRONT being culled, which is
+			the opposite of the GL_BACK default. This used to be set from
+			Application::RenderTickables after the first frame was drawn, so the
+			very first frame - and anything rendered before that point - was
+			culled with the default GL_BACK. Desktop drivers also default
+			glFrontFace to GL_CCW, but embedded GLES drivers are allowed to
+			default to GL_CW, which silently turns GL_FRONT into "cull the
+			visible side" and made the notes disappear on iPadOS. Both are set
+			explicitly here so the state does not depend on the driver default or
+			on the order the frames are drawn in.
+		*/
+		glFrontFace(GL_CCW);
+		glCullFace(GL_FRONT);
 		glEnable(GL_BLEND);
 		glEnable(GL_STENCIL_TEST);
 		return true;
