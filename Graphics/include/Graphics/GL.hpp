@@ -39,6 +39,28 @@
 #endif
 
 /*
+	NanoVG's ES 3 backend and the ES 3.0 sized formats use a handful of
+	enumerants that the ES 2.0 headers do not declare. The context is ES 3.0 and
+	the OpenGLES framework exports the entry points, so the missing constants are
+	defined here.
+*/
+#ifndef GL_UNPACK_ROW_LENGTH
+#define GL_UNPACK_ROW_LENGTH 0x0CF2
+#endif
+#ifndef GL_UNPACK_SKIP_PIXELS
+#define GL_UNPACK_SKIP_PIXELS 0x0CF4
+#endif
+#ifndef GL_UNPACK_SKIP_ROWS
+#define GL_UNPACK_SKIP_ROWS 0x0CF3
+#endif
+#ifndef GL_R8
+#define GL_R8 0x8229
+#endif
+#ifndef GL_RED
+#define GL_RED 0x1903
+#endif
+
+/*
 	Vertex array objects are core in ES 3.0 and were promoted from
 	GL_OES_vertex_array_object, which is what the ES 2.0 headers declare. The OES
 	entry points are the same functions on iOS, so they are used directly.
