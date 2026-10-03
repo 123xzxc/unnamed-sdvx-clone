@@ -4,8 +4,10 @@ header["user-agent"] = "Mozilla/5.0 (iPad; CPU OS 15_0 like Mac OS X) unnamed_sd
 header["accept"] = "application/json"
 
 -- Cryptic libcurl errors ("Couldn't connect to server", "SSL connect error")
--- are not useful on their own, so the request URL is shown as well.
-local function formatError(status, err)
+-- are not useful on their own, so the URL that was requested is appended. It is
+-- passed in (and captured) instead of reading the global nextUrl, because the
+-- callback runs asynchronously and nextUrl may already have been replaced.
+local function formatError(url, status, err)
     local msg
     if err == nil or err == "" then
         if status ~= 0 then
@@ -16,7 +18,10 @@ local function formatError(status, err)
     else
         msg = tostring(err)
     end
-    return msg .. "\nRequest: " .. tostring(nextUrl)
+    if url ~= nil then
+        msg = msg .. "\nRequest: " .. tostring(url)
+    end
+    return msg
 end
 
 local jacketFallback = gfx.CreateSkinImage("song_select/loading.png", 0)
@@ -112,7 +117,7 @@ function gotSongsCallback(response)
         -- cause (no network, TLS, unbuildable URL, ...) visible on the device.
         loading = false
         loadingFailed = true
-        loadingError = formatError(response.status, response.error)
+        loadingError = formatError(response.url, response.status, response.error)
         return
     end
     local jsondata = json.decode(response.text)
