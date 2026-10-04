@@ -7,7 +7,8 @@ namespace Graphics
 {
 #ifdef USC_IOS
 	/*
-		The skin shaders in bin/skins/**/*.vs|*.fs are written for the desktop
+		The skin shaders shipped with the default skin (.vs / .fs files under
+		bin/skins) are written for the desktop
 		core-profile pipeline, and two constructs in them are simply not part of
 		GLSL ES 3.00:
 
