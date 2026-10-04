@@ -235,25 +235,41 @@ namespace Graphics
 				operate on float and int". Printing the head of the source and the decision
 				makes that visible without a debugger.
 			*/
+			/*
+				Dump the rewritten source line by line. An earlier revision logged only
+				the first bytes, which showed #version in the right place while the real
+				error was a mangled line further down ("ut : syntax error" from an "out"
+				that had lost its first character). Carriage returns are spelled out so
+				CRLF artefacts are visible, and the numbering matches what the GLSL
+				compiler reports.
+			*/
 			{
-				// Newlines and carriage returns are spelled out so a CRLF or a stray byte
-				// in front of #version is obvious in the log rather than invisible.
-				String head;
-				const size_t headLen = sourceStr.size() < 40 ? sourceStr.size() : 40;
-				for(size_t i = 0; i < headLen; i++)
+				Logf("Shader source for %s (vertex=%d), %d bytes:", Logger::Severity::Info,
+					m_sourcePath, (int)(m_type == ShaderType::Vertex), (int)sourceStr.size());
+
+				int lineNumber = 1;
+				String line;
+				for(size_t i = 0; i <= sourceStr.size(); i++)
 				{
-					const char c = sourceStr[i];
-					if(c == '\n')
-						head += "|";
+					const bool atEnd = (i == sourceStr.size());
+					const char c = atEnd ? '\n' : sourceStr[i];
+					if(c == '\n' || atEnd)
+					{
+						Logf("  %3d| %s", Logger::Severity::Info, lineNumber, line);
+						lineNumber++;
+						line.clear();
+						if(atEnd)
+							break;
+					}
 					else if(c == '\r')
-						head += "<CR>";
-					else if(c == '\t')
-						head += "<TAB>";
+					{
+						line += "<CR>";
+					}
 					else
-						head += c;
+					{
+						line += c;
+					}
 				}
-				Logf("Shader source head for %s (vertex=%d): [%s]", Logger::Severity::Info,
-					m_sourcePath, (int)(m_type == ShaderType::Vertex), head);
 			}
 
 			const char* pChars = *sourceStr;
