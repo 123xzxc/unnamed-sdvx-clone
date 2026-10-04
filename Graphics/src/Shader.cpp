@@ -28,7 +28,7 @@ namespace Graphics
 		skins the user installs themselves working too, and leaves the desktop
 		builds byte-for-byte untouched.
 	*/
-	String DowngradeDesktopShader(const String& source)
+	String DowngradeDesktopShader(const String& source, bool isVertexShader)
 	{
 		String out;
 		out.reserve(source.size());
@@ -54,6 +54,47 @@ namespace Graphics
 			if(trimmed.substr(0, 10).compare("#extension") == 0)
 			{
 				// Desktop-only extension directive: drop the whole line.
+			}
+			else if(trimmed.substr(0, 7).compare("layout(") == 0 &&
+				(trimmed.find(") in ") != String::npos || trimmed.find(") out ") != String::npos))
+			{
+				/*
+					Layout qualifiers on the stage interface are the other desktop-only
+					construct. On the real device GLSL ES 3.00 rejected them with
+					"Invalid use of layout 'location'", which took down every material
+					that used the background shaders:
+
+					  * vertex outputs and fragment inputs are matched by name at link
+					    time, so pinning their locations is both unnecessary and, here,
+					    rejected. Dropping them lets the linker do its job.
+
+					  * vertex inputs DO need explicit locations, because Mesh::SetData
+					    feeds the streams in declaration order with index 0, 1, ... These
+					    are the ones that must stay.
+
+					The qualifier is only removed, never the rest of the declaration, so
+					"layout(location=1) out vec2 texVp;" becomes "out vec2 texVp;".
+				*/
+				const bool isInput = trimmed.find(") in ") != String::npos;
+				if(isInput && isVertexShader)
+				{
+					out += line;
+					if(eol == String::npos)
+						break;
+					out += '\n';
+				}
+				else
+				{
+					size_t close = trimmed.find(') ');
+					if(close != String::npos)
+					{
+						String rest = trimmed.substr(close + 2);
+						out += rest;
+						if(eol == String::npos)
+							break;
+						out += '\n';
+					}
+				}
 			}
 			else if(trimmed.compare("out gl_PerVertex") == 0)
 			{
@@ -179,13 +220,41 @@ namespace Graphics
 			*/
 			// The shipped skin shaders are desktop GLSL; strip the parts GLSL ES
 			// 3.00 has no equivalent for before prepending the version directive.
-			sourceStr = DowngradeDesktopShader(sourceStr);
+			sourceStr = DowngradeDesktopShader(sourceStr, m_type == ShaderType::Vertex);
 			sourceStr = "#version 300 es\n#define EMBEDDED\n#define target target\n#define texture texture\nprecision mediump float;\n"
 				+ sourceStr;
 #else
 			sourceStr = "#version 100\n#define EMBEDDED\n#define target gl_FragColor\n#define texture texture2D\nprecision mediump float;\n" + sourceStr;
 #endif
 			const GLint programsize = sourceStr.size();
+
+			/*
+				The first line decides which GLSL version the compiler parses the shader
+				as, and a stray byte in front of "#version" silently downgrades the whole
+				file to ES 1.00 - which shows up as unrelated errors like "does not
+				operate on float and int". Printing the head of the source and the decision
+				makes that visible without a debugger.
+			*/
+			{
+				// Newlines and carriage returns are spelled out so a CRLF or a stray byte
+				// in front of #version is obvious in the log rather than invisible.
+				String head;
+				const size_t headLen = sourceStr.size() < 40 ? sourceStr.size() : 40;
+				for(size_t i = 0; i < headLen; i++)
+				{
+					const char c = sourceStr[i];
+					if(c == '\n')
+						head += "|";
+					else if(c == '\r')
+						head += "<CR>";
+					else if(c == '\t')
+						head += "<TAB>";
+					else
+						head += c;
+				}
+				Logf("Shader source head for %s (vertex=%d): [%s]", Logger::Severity::Info,
+					m_sourcePath, (int)(m_type == ShaderType::Vertex), head);
+			}
 
 			const char* pChars = *sourceStr;
 			glShaderSource(programOut, 1, &pChars, &programsize);
