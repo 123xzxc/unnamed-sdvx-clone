@@ -1,3 +1,4 @@
+#include "iOSLog.h"
 #include "iOSPlatform.h"
 
 #include <Shared/Log.hpp>
@@ -44,7 +45,11 @@ namespace
 
 	std::mutex g_logLock;
 	FILE* g_logFile = nullptr;
-	bool g_openAttempted = false;
+	// Serialises the one-time open across threads. call_once is reentrancy-hostile
+	// (a nested call would deadlock waiting for itself), hence the thread-local
+	// guard below: the log open path itself logs.
+	std::once_flag g_openOnce;
+	thread_local bool g_insideSink = false;
 	String g_logPath;
 	// Lines produced before the file is open. Bounded so a broken start-up cannot
 	// eat memory forever.
@@ -64,21 +69,9 @@ namespace
 		return "?";
 	}
 
-	// Writes what is left over from start-up once the file is available.
-	void FlushPending()
+	// Only ever called from the call_once block in WriteLine.
+	bool OpenLog()
 	{
-		if(!g_logFile || g_pending.empty())
-			return;
-		fwrite(g_pending.c_str(), 1, g_pending.size(), g_logFile);
-		g_pending.clear();
-	}
-
-	bool OpenLocked()
-	{
-		if(g_openAttempted)
-			return g_logFile != nullptr;
-		g_openAttempted = true;
-
 		// Path::gameDir is set by Application as soon as it can; fall back to the
 		// raw Documents folder so even a failure before that still logs somewhere
 		// the user can reach.
@@ -95,23 +88,38 @@ namespace
 		if(!Path::IsDirectory(dir))
 			Path::CreateDirRecursive(dir);
 
-		g_logPath = dir + Path::sep + kLogFileName;
+		// The path is only published under the lock at the end, so GetPath() never
+		// observes a half-built value.
+		const String logPath = dir + Path::sep + kLogFileName;
 
 		// Keep the previous session instead of overwriting it: the interesting
 		// crash is usually in the run before the one being investigated.
 		struct stat st;
-		if(::stat(g_logPath.c_str(), &st) == 0 && (size_t)st.st_size > kMaxLogBytes)
+		if(::stat(logPath.c_str(), &st) == 0 && (size_t)st.st_size > kMaxLogBytes)
 		{
-			String old = g_logPath + ".1";
+			String old = logPath + ".1";
 			Path::Delete(old);
-			Path::Rename(g_logPath, old, true);
+			Path::Rename(logPath, old, true);
 		}
 
-		g_logFile = fopen(g_logPath.c_str(), "ab");
-		if(!g_logFile)
+		FILE* file = fopen(logPath.c_str(), "ab");
+		if(!file)
 			return false;
 
-		FlushPending();
+		// Publish under the lock so GetPath() never sees a half-built path.
+		{
+			std::lock_guard<std::mutex> guard(g_logLock);
+			g_logPath = logPath;
+			g_logFile = file;
+			const String pending = g_pending;
+			g_pending.clear();
+			if(!pending.empty())
+			{
+				fwrite(pending.c_str(), 1, pending.size(), g_logFile);
+				fflush(g_logFile);
+				::fsync(fileno(g_logFile));
+			}
+		}
 		return true;
 	}
 }
@@ -136,26 +144,44 @@ void iOSLog::WriteLine(Logger::Severity severity, const char* message)
 	snprintf(line, sizeof(line), "[%s][%s] %s\n", timeStr, SeverityName(severity), message);
 	const String utf8(line);
 
-	std::lock_guard<std::mutex> guard(g_logLock);
-
-	if(!g_openAttempted)
-		OpenLocked();
-
-	if(!g_logFile)
-	{
-		// Not open yet (or the sandbox refused): hold on to the text so it still
-		// reaches the file once the directory is known.
-		if(g_pending.size() < kMaxPendingBytes)
-			g_pending += utf8;
+	/*
+		The sink is not reentrant: OpenLog() calls GetGameDataPath(), which logs
+		if it has to create the directory, which would come straight back here. The
+		thread-local flag drops those nested lines instead of recursing.
+	*/
+	if(g_insideSink)
 		return;
+	g_insideSink = true;
+
+	// Runs at most once across every thread. The opening happens outside
+	// g_logLock so the nested Logf described above cannot deadlock on it.
+	std::call_once(g_openOnce, []()
+	{
+		OpenLog();
+	});
+
+	{
+		std::lock_guard<std::mutex> guard(g_logLock);
+
+		if(!g_logFile)
+		{
+			// Not open yet (or the sandbox refused): hold on to the text so it still
+			// reaches the file once the directory is known.
+			if(g_pending.size() < kMaxPendingBytes)
+				g_pending += utf8;
+			g_insideSink = false;
+			return;
+		}
+
+		fwrite(utf8.c_str(), 1, utf8.size(), g_logFile);
+		fflush(g_logFile);
+		// fsync keeps the lines on disk even when the process is killed by a crash
+		// or by the watchdog instead of exiting normally. It costs a little, but a
+		// log that loses the crash is worthless.
+		::fsync(fileno(g_logFile));
 	}
 
-	fwrite(utf8.c_str(), 1, utf8.size(), g_logFile);
-	fflush(g_logFile);
-	// fsync keeps the lines on disk even when the process is killed by a crash or
-	// by the watchdog instead of exiting normally. It costs a little, but a log
-	// that loses the crash is worthless.
-	::fsync(fileno(g_logFile));
+	g_insideSink = false;
 }
 
 String iOSLog::GetPath()

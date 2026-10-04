@@ -258,9 +258,10 @@ IPA 里没有任何证书和描述文件，必须在本机重新签名后才能�
    但只在抬指时才松开：如果手指是在空白处抬起的，左键就一直按着，之后菜单里的点击
    全被当成拖拽，于是"点哪个都没反应"。现在从控件上开始的触摸整个生命周期都算控件
    触摸，滑出去只是松开按键，不会产生鼠标事件。
- * **Get Songs 一直显示 LOADING...**。CI 默认用 `-DUSC_IOS_HTTP=OFF` 构建，请求永远
-   返回 `status = 0`，而 lua 只在 `status ~= 200` 时 `error()`，界面就永远停在加载中。
-   现在会明确提示"这个构建没有 HTTP 支持"，并停止无意义的重复请求。
+ * **Get Songs 一直显示 LOADING...**。默认构建带着 HTTP，请求失败时 `status` 是 0，
+   而 lua 只在 `status ~= 200` 时 `error()`，界面就永远停在加载中。现在会明确显示失败
+   原因和请求的 URL，并停止无意义的重复请求。只有显式用 `-DUSC_IOS_HTTP=OFF` 构建时
+   才会提示"这个构建没有 HTTP 支持"。
  * **Get Songs 点进去是全空白的**。失败回调会同时把 `loading` 置回 `false` 并设置
    `loadingFailed`，而 `render_loading()` 的第一行是 `if not loading then return end`，
    于是失败提示永远画不出来，屏幕上什么都没有。现在画提示的判断在 `loading` 门控之前。
@@ -278,3 +279,23 @@ IPA 里没有任何证书和描述文件，必须在本机重新签名后才能�
    的按键编号和默认键位假设的 Xbox 布局对不上，于是按什么都没反应。现在有映射的设备
    走 `SDL_GameControllerOpen()`（其余回退到原始设备），并且只把 `SDL_CONTROLLER*`
    事件喂给这类设备，热插拔时还会让设置页面重建设备列表。
+
+## 诊断日志
+
+设备上跑的构建没法挂调试器，所以每一次排查都靠"日志" `usc-ios.log`：它在可写游戏目录里
+（`文稿/unnamed-sdvx-clone/usc-ios.log`），可以直接在 iOS「文件」App 或 Finder 的文件共享里
+打开、导出。
+
+* 引擎自带的 `Logger` 把 `log_<module>.txt` 写在可执行文件旁边，而那个路径是 `Logger` 构造函数
+  （静态初始化阶段）决定的，那时 `Path::gameDir` 还没算出来。iOS 上它落在只读的 `.app` 里，
+  每次写入都失败，等于什么都没有记录。
+* `platform/ios/src/iOSLog.cpp` 是 iOS 专用的第二条日志通道：追加写入、超过 4 MB 轮转、
+  每行 `fsync`，所以进程被杀掉或崩溃也不会丢掉最关键的几行。
+* `platform/ios/src/iOSPlatform.mm` 在 `Init()` 里把它挂到 `Logger::SetSink()` 上，
+  无需改动任何 `Log()` / `Logf()` 调用点。
+* `Main/src/Main.cpp` 注册 `SIGSEGV`/`SIGBUS`/`SIGFPE`/`SIGILL`，用 `write(2)` 把信号名写进
+  日志；iOS 入口也包了 `try/catch`，异常不再默默消失在 SDL 的 UIKit 代理里。
+* `Main/src/SkinHttp.cpp` 记录每个 HTTP 请求的 URL、状态码和 libcurl 错误，
+  所以"Get Songs 是空的"现在是一行日志而不是需要手动转述的弹窗。
+
+遇到问题时，把 `usc-ios.log` 一起发出来即可。
