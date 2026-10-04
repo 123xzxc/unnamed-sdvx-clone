@@ -71,7 +71,7 @@ float GetDistanceShape(vec2 st, int N){
   float Stretch = .3; 
 
   // Speed
-  float speed = 1;
+  float speed = 1.0;
 
   // Default rotation in radians
   float BaseRotation = 0.0;
@@ -84,7 +84,7 @@ float GetDistanceShape(vec2 st, int N){
 
 void main()
 {
-    float ar = float(viewport.x) / viewport.y;
+    float ar = float(viewport.x) / float(viewport.y);
     
 	vec2 uv = vec2(texVp.x / viewport.x, texVp.y / viewport.y);
     uv.x *= ar;
@@ -100,7 +100,7 @@ void main()
     float diff = GetDistanceShape(point_diff,N);
     float thing2 = Stretch / (diff);
 	float fog = -1. / (diff * 10. * Scale.x) + 1.;
-    fog = clamp(fog, 0, 1);
+    fog = clamp(fog, 0.0, 1.0);
     float texY = thing2;
     texY += timing.y * speed;
 
@@ -109,10 +109,10 @@ void main()
 
     vec4 col = texture(mainTex, vec2(rot,texY));
     float hsvVal = (col.x + col.y + col.z) / 3.0;
-    vec4 clear_col = vec4(hsv2rgb(vec3(cos(rot * 10) + 0.4, 1.0, hsvVal)), col.a);
+    vec4 clear_col = vec4(hsv2rgb(vec3(cos(rot * 10.0) + 0.4, 1.0, hsvVal)), col.a);
 
     col.xyz *= (1.0 - clearTransition);
-    col.xyz += clear_col.xyz * clearTransition * 2;
+    col.xyz += clear_col.xyz * clearTransition * 2.0;
     target.xyz = col.xyz;
     target.a = col.a * fog;
 }

@@ -22,17 +22,17 @@ uniform float clearTransition;
 
 
 float gapWidth = 0.6;
-float boost = 2;
-float post_boost = 3;
+float boost = 2.0;
+float post_boost = 3.0;
 float boost_exponent = 1.3;
 float scan_curve = 0.8;
-float lines = 320;
+float lines = 320.0;
 vec2 blue_green_shift = vec2(0.0005 , 0.0);
 void main()
 {
     //target = vec4(0);
     //return;
-    vec2 uv = vec2(texVp) / viewport;
+    vec2 uv = vec2(texVp) / vec2(viewport);
     uv.y = 1.0 - uv.y;
     float scanline = (0.5 * sin(uv.y * TWO_PI * lines) + 0.5 - gapWidth) / (2.0 - gapWidth);
     scanline = max(0., scanline);

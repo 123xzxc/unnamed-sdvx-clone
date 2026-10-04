@@ -16,8 +16,8 @@ void main()
         if (fsTex.x < 0.1 || fsTex.x > 0.9)
         {
             float y = fsTex.y / 0.05;
-            y -= 1;
-            target = vec4(0., .7 - pow(y,2), 1., 1. - pow(y,2));
+            y -= 1.0;
+            target = vec4(0., .7 - pow(y, 2.0), 1., 1. - pow(y, 2.0));
         }
         else if(abs(fsTex.y - 0.05) < 0.02)
         {

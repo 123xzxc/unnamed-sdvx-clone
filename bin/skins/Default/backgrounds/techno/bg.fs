@@ -84,7 +84,7 @@ vec4 draw_b(vec2 uv, vec2 center)
 
 void main()
 {
-    float ar = float(viewport.x) / viewport.y;
+    float ar = float(viewport.x) / float(viewport.y);
     vec2 center = vec2(screenCenter);
 	vec2 uv = texVp.xy;
 	float rot = dot(tilt, vec2(0.5, 1.0));

@@ -14,12 +14,12 @@ uniform float colorBorder;
 
 void main()
 {
-	target = vec4(1.0f);
+	target = vec4(1.0);
     float xStep = 1. / viewport.x;
-    vec3 col = vec3(0.0f);
+    vec3 col = vec3(0.0);
     
-    vec2 current = vec2(fsTex.x, texture(graphTex, vec2(fsTex.x, 0.5f)).x);
-    vec2 next = vec2(fsTex.x + xStep, texture(graphTex, vec2(clamp(fsTex.x + xStep, 0.0f, 1.0f) , 0.5f)).x);
+    vec2 current = vec2(fsTex.x, texture(graphTex, vec2(fsTex.x, 0.5)).x);
+    vec2 next = vec2(fsTex.x + xStep, texture(graphTex, vec2(clamp(fsTex.x + xStep, 0.0, 1.0) , 0.5)).x);
     vec2 avg = (current + next) / 2.0;
     float dist = abs(distance(vec2(fsTex.x,fsTex.y * -1 + 1.),avg));
     

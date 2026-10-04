@@ -28,9 +28,61 @@ namespace Graphics
 		skins the user installs themselves working too, and leaves the desktop
 		builds byte-for-byte untouched.
 	*/
-	String DowngradeDesktopShader(const String& source, bool isVertexShader)
+	String WidenFloatConstants(const String& line);
+
+	/*
+		Desktop GLSL accepts a trailing "f" on floating constants (1.0f, 0.5f);
+		GLSL ES 3.00 rejects it with an invalid-suffix error. The suffix carries no
+		meaning, so it is dropped wherever it follows a numeric literal. Identifiers
+		that merely end in f (a variable named "f") are not touched because a number
+		must appear immediately before it.
+	*/
+	String StripFloatSuffix(const String& line)
 	{
 		String out;
+		out.reserve(line.size());
+
+		for(size_t i = 0; i < line.size(); )
+		{
+			const char c = line[i];
+			if(c != 'f' && c != 'F')
+			{
+				out += c;
+				i++;
+				continue;
+			}
+
+			// A suffix only when the previous character belongs to a numeric literal:
+			// a digit, or the dot/exponent of one such as 1. or 1e5.
+			const char prev = (i > 0) ? line[i - 1] : '\0';
+			const bool afterNumber = (prev >= '0' && prev <= '9') || prev == '.';
+			// A hex digit or an identifier character means this is part of a name.
+			const bool inWord = (i + 1 < line.size()) &&
+				((line[i + 1] >= 'a' && line[i + 1] <= 'z') ||
+				 (line[i + 1] >= 'A' && line[i + 1] <= 'Z') ||
+				 (line[i + 1] >= '0' && line[i + 1] <= '9') || line[i + 1] == '_');
+
+			if(afterNumber && !inWord)
+				i++;   // drop the suffix
+			else
+			{
+				out += c;
+				i++;
+			}
+		}
+
+		return out;
+	}
+
+	String DowngradeDesktopShader(const String& source, bool /*isVertexShader*/)
+	{
+		/*
+			The vertex/fragment distinction used to matter: vertex input declarations
+			were kept and everything else was dropped. Both are now kept (only the
+			layout prefix is removed), so the parameter is no longer read. It stays in
+			the signature to avoid churning the call site.
+		*/
+			String out;
 		out.reserve(source.size());
 
 		size_t pos = 0;
@@ -55,49 +107,49 @@ namespace Graphics
 			{
 				// Desktop-only extension directive: drop the whole line.
 			}
+			else if(trimmed.substr(0, 8).compare("#version") == 0)
+			{
+				/*
+					Some shaders carry their own "#version 330". The loader prepends
+					"#version 300 es" for iOS, and a shader may only contain one version
+					directive - and it has to be the first thing in the file - so the
+					original line is dropped and the prepended one is the only one left.
+				*/
+			}
 			else if(trimmed.substr(0, 7).compare("layout(") == 0 &&
 				(trimmed.find(") in ") != String::npos || trimmed.find(") out ") != String::npos))
 			{
 				/*
-					Layout qualifiers on the stage interface are the other desktop-only
-					construct. On the real device GLSL ES 3.00 rejected them with
-					"Invalid use of layout 'location'", which took down every material
-					that used the background shaders:
+					Desktop GLSL pins stage interface locations; GLSL ES 3.00 rejects
+					layout(location=N) on in/out with an Invalid use of layout error.
 
-					  * vertex outputs and fragment inputs are matched by name at link
-					    time, so pinning their locations is both unnecessary and, here,
-					    rejected. Dropping them lets the linker do its job.
+					The qualifier alone is removed and the declaration behind it is kept,
+					including vertex inputs: Mesh::SetData feeds the streams in declaration
+					order with index 0, 1, ... and that stays aligned because lines are only
+					rewritten, never reordered.
 
-					  * vertex inputs DO need explicit locations, because Mesh::SetData
-					    feeds the streams in declaration order with index 0, 1, ... These
-					    are the ones that must stay.
-
-					The qualifier is only removed, never the rest of the declaration, so
-					"layout(location=1) out vec2 texVp;" becomes "out vec2 texVp;".
+					This used to drop the whole line. For a vertex input that only cost the
+					binding hint and the attribute still bound by order, but for a vertex
+					output or a fragment input it deleted the declaration itself, so the two
+					stages disagreed about the interface. Coordinates were then read from
+					whatever happened to be in registers, which is the garbled text and
+					track graphics reported with the previous build.
 				*/
-				const bool isInput = trimmed.find(") in ") != String::npos;
-				if(isInput && isVertexShader)
+				size_t close = trimmed.find(") ");
+				if(close != String::npos)
 				{
-					out += line;
+					String rest = trimmed.substr(close + 2);
+					out += rest;
 					if(eol == String::npos)
 						break;
 					out += '\n';
 				}
 				else
 				{
-					// Has to be a string literal: ')\ ' would be a multi-character
-					// literal, whose value is implementation-defined, and String::find
-					// would then search for that garbage character instead of the closing
-					// parenthesis. That is what produced "ut vec4 target;" on the device.
-					size_t close = trimmed.find(") ");
-					if(close != String::npos)
-					{
-						String rest = trimmed.substr(close + 2);
-						out += rest;
-						if(eol == String::npos)
-							break;
-						out += '\n';
-					}
+					out += line;
+					if(eol == String::npos)
+						break;
+					out += '\n';
 				}
 			}
 			else if(trimmed.compare("out gl_PerVertex") == 0)
@@ -114,7 +166,7 @@ namespace Graphics
 			}
 			else
 			{
-				out += line;
+				out += StripFloatSuffix(WidenFloatConstants(line));
 				if(eol == String::npos)
 					break;
 				out += '\n';
@@ -128,6 +180,150 @@ namespace Graphics
 		return out;
 	}
 #endif
+
+	/*
+		GLSL ES 3.00 dropped the implicit int-to-float conversion that desktop
+		GLSL (and ES 1.00) still allow, so desktop shaders routinely mix the two:
+
+			float speed = 1;        -> Incompatible types in initialization
+			cos(rot * 10)           -> no operation '*' on float and int
+			y -= 1;                 -> no operation '-' on float and int
+
+		Every int literal that sits in a floating point operation is rewritten as
+		a float literal. The scan is deliberately narrow - only literals adjacent
+		to an arithmetic operator or used to initialise a float/vec - so that
+		genuine integer arithmetic, loop bounds and array indices keep their type.
+	*/
+	String WidenFloatConstants(const String& line)
+	{
+		String out;
+		out.reserve(line.size() + 8);
+
+		for(size_t i = 0; i < line.size(); )
+		{
+			const char c = line[i];
+
+			// Skip anything that is not the start of a number.
+			const bool startsNumber = (c >= '0' && c <= '9');
+			if(!startsNumber)
+			{
+				out += c;
+				i++;
+				continue;
+			}
+
+			// Do not touch a number that is part of an identifier or a directive.
+			if(i > 0)
+			{
+				const char prev = line[i - 1];
+				if((prev >= 'a' && prev <= 'z') || (prev >= 'A' && prev <= 'Z') ||
+				   prev == '_' || prev == '#' || (prev >= '0' && prev <= '9'))
+				{
+					out += c;
+					i++;
+					continue;
+				}
+			}
+
+			// Consume the run of digits.
+			size_t start = i;
+			while(i < line.size() && line[i] >= '0' && line[i] <= '9')
+				i++;
+
+			// Already a float (has a dot or an exponent), or an index/number after a
+			// dot such as vec2(1.0, 2.0): leave it alone.
+			bool isFloat = false;
+			if(i < line.size() && line[i] == '.')
+				isFloat = true;
+			if(i < line.size() && (line[i] == 'e' || line[i] == 'E'))
+				isFloat = true;
+			// A component swizzle or a cast like "float(N)" must stay an int.
+			bool insideCast = false;
+			{
+				size_t open = line.find_last_of('(', start);
+				if(open != String::npos)
+				{
+					size_t closeBefore = line.find_last_of(')', start);
+					if(closeBefore == String::npos || closeBefore < open)
+					{
+						String callee = line.substr(0, open);
+						size_t nameEnd = callee.find_last_of(" \t+-*/,(");
+						String name = (nameEnd == String::npos) ? callee : callee.substr(nameEnd + 1);
+						if(name.compare("float") == 0 || name.compare("int") == 0 ||
+						   name.compare("uint") == 0 || name.compare("vec2") == 0 ||
+						   name.compare("vec3") == 0 || name.compare("vec4") == 0 ||
+						   name.compare("ivec2") == 0 || name.compare("ivec3") == 0 ||
+						   name.compare("ivec4") == 0 || name.compare("mod") == 0 ||
+						   name.compare("texture") == 0 || name.compare("texelFetch") == 0)
+							insideCast = true;
+					}
+				}
+			}
+
+			const String literal = line.substr(start, i - start);
+
+			if(isFloat || insideCast)
+			{
+				out += literal;
+				continue;
+			}
+
+			/*
+				An int literal needs a .0 when it shares an expression with a float.
+				Rather than type check the expression, look at what surrounds it: an
+				operand of an arithmetic operator, an assignment to something that is not
+				an int, a comparison, or a function argument that is not one of the
+				integer-taking functions above.
+			*/
+			bool widen = false;
+
+			// Operator immediately before the literal.
+			for(size_t j = start; j > 0; )
+			{
+				const char prev = line[j - 1];
+				if(prev == ' ' || prev == '\t')
+				{
+					j--;
+					continue;
+				}
+				if(prev == '-')
+				{
+					// Unary minus on a literal: check what is before it as well.
+					size_t k = j - 1;
+					while(k > 0 && (line[k - 1] == ' ' || line[k - 1] == '\t'))
+						k--;
+					const char before = (k > 0) ? line[k - 1] : '\0';
+					if(before == '=' || before == '(' || before == ',' || before == '\0')
+						widen = true;
+				}
+				else if(prev == '+' || prev == '*' || prev == '/')
+				{
+					widen = true;
+				}
+				/*
+					Note the deliberate absence of a rule for '='. The type of the
+					assignment target is not known here, and widening on '=' would turn
+					"int N = 4;" into "int N = 4.0;" - a new error in place of the old one.
+					Declarations seeded with a bare int literal are fixed in the shader
+					sources instead; this pass only handles literals in arithmetic, which
+					is where the float/int mixing actually shows up.
+				*/
+				break;
+			}
+
+			if(widen)
+			{
+				out += literal;
+				out += ".0";
+			}
+			else
+			{
+				out += literal;
+			}
+		}
+
+		return out;
+	}
 
 	/*
 		Prints a shader exactly as it was handed to the driver, with the same line

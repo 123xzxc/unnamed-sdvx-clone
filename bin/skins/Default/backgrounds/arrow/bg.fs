@@ -46,7 +46,7 @@ vec3 hsv2rgb(vec3 c) {
 
 void main()
 {
-    float ar = float(viewport.x) / viewport.y;
+    float ar = float(viewport.x) / float(viewport.y);
     vec2 center = vec2(screenCenter);
 	vec2 uv = texVp.xy;
 

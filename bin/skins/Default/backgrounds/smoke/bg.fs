@@ -100,7 +100,7 @@ vec4 over(vec4 a, vec4 b)
 
 void main()
 {
-    float ar = float(viewport.x) / viewport.y;
+    float ar = float(viewport.x) / float(viewport.y);
     vec2 center = vec2(screenCenter);
 	vec2 uv = texVp.xy;
 	float rot = dot(tilt, vec2(0.5, 1.0));
