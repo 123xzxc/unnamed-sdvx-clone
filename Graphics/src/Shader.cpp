@@ -85,7 +85,11 @@ namespace Graphics
 				}
 				else
 				{
-					size_t close = trimmed.find(') ');
+					// Has to be a string literal: ')\ ' would be a multi-character
+					// literal, whose value is implementation-defined, and String::find
+					// would then search for that garbage character instead of the closing
+					// parenthesis. That is what produced "ut vec4 target;" on the device.
+					size_t close = trimmed.find(") ");
 					if(close != String::npos)
 					{
 						String rest = trimmed.substr(close + 2);
@@ -124,6 +128,45 @@ namespace Graphics
 		return out;
 	}
 #endif
+
+	/*
+		Prints a shader exactly as it was handed to the driver, with the same line
+		numbering the GLSL compiler uses in its error messages. Carriage returns
+		are shown as <CR> because a stray one inside a token is otherwise invisible
+		in the log and produces errors that look unrelated to the real mistake.
+
+		Only called when compilation failed, so the log stays readable on a run
+		where everything works.
+	*/
+	void DumpShaderSource(const String& source, const String& path, bool isVertex)
+	{
+		Logf("Full shader source for %s (vertex=%d), %d bytes:", Logger::Severity::Error,
+			path, (int)isVertex, (int)source.size());
+
+		int lineNumber = 1;
+		String line;
+		for(size_t i = 0; i <= source.size(); i++)
+		{
+			const bool atEnd = (i == source.size());
+			const char c = atEnd ? '\n' : source[i];
+			if(c == '\n' || atEnd)
+			{
+				Logf("  %3d| %s", Logger::Severity::Error, lineNumber, line);
+				lineNumber++;
+				line.clear();
+				if(atEnd)
+					break;
+			}
+			else if(c == '\r')
+			{
+				line += "<CR>";
+			}
+			else
+			{
+				line += c;
+			}
+		}
+	}
 
 #ifdef EMBEDDED
 	const uint32 typeMap[] =
@@ -235,43 +278,6 @@ namespace Graphics
 				operate on float and int". Printing the head of the source and the decision
 				makes that visible without a debugger.
 			*/
-			/*
-				Dump the rewritten source line by line. An earlier revision logged only
-				the first bytes, which showed #version in the right place while the real
-				error was a mangled line further down ("ut : syntax error" from an "out"
-				that had lost its first character). Carriage returns are spelled out so
-				CRLF artefacts are visible, and the numbering matches what the GLSL
-				compiler reports.
-			*/
-			{
-				Logf("Shader source for %s (vertex=%d), %d bytes:", Logger::Severity::Info,
-					m_sourcePath, (int)(m_type == ShaderType::Vertex), (int)sourceStr.size());
-
-				int lineNumber = 1;
-				String line;
-				for(size_t i = 0; i <= sourceStr.size(); i++)
-				{
-					const bool atEnd = (i == sourceStr.size());
-					const char c = atEnd ? '\n' : sourceStr[i];
-					if(c == '\n' || atEnd)
-					{
-						Logf("  %3d| %s", Logger::Severity::Info, lineNumber, line);
-						lineNumber++;
-						line.clear();
-						if(atEnd)
-							break;
-					}
-					else if(c == '\r')
-					{
-						line += "<CR>";
-					}
-					else
-					{
-						line += c;
-					}
-				}
-			}
-
 			const char* pChars = *sourceStr;
 			glShaderSource(programOut, 1, &pChars, &programsize);
 			glCompileShader(programOut);
@@ -285,6 +291,9 @@ namespace Graphics
 				glGetShaderInfoLog(programOut, sizeof(infoLogBuffer), &s, infoLogBuffer);
 
 				Logf("Shader program compile log for %s: %s", Logger::Severity::Error, m_sourcePath, infoLogBuffer);
+				// The compiler reports a line number; print the source with matching
+				// numbering so that line can be read without guessing.
+				DumpShaderSource(sourceStr, m_sourcePath, m_type == ShaderType::Vertex);
 				return false;
 			}
 
@@ -332,6 +341,7 @@ namespace Graphics
 				glGetProgramInfoLog(programOut, sizeof(infoLogBuffer), &s, infoLogBuffer);
 
 				Logf("Shader program compile log for %s: %s", Logger::Severity::Error, m_sourcePath, infoLogBuffer);
+				DumpShaderSource(sourceStr, m_sourcePath, m_type == ShaderType::Vertex);
 				return false;
 			}
 
