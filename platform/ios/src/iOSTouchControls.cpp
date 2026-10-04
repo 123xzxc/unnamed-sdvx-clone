@@ -129,8 +129,16 @@ namespace
 			for(int i = 0; i < 3; i++)
 				btPos[i] = Vector2(btFirstX + btStepX * (float)i, btRowY);
 
-			// BT-D mirrors FX-R on the other side.
-			btPos[3] = Vector2(w - edgeMargin - fxSize.x * 2.0f - gap * 2.0f - btRadius, btRowY);
+			/*
+				BT-D mirrors BT-A about the centre of the screen and BT-C mirrors
+				BT-B, so the right hand is laid out exactly like the left one
+				reflected: | FX-L A B C ... C B A FX-R |. The previous version
+				placed BT-D with its own formula (measuring from FX-R instead of
+				reusing btStepX), which left a 4x too wide hole between BT-C and
+				BT-D and pushed BT-D away from the middle of the screen, so the
+				right hand buttons did not line up with the note lanes.
+			*/
+			btPos[3] = Vector2(w - btPos[0].x, btRowY);
 
 			cornerSize = Vector2(0.085f * w, 0.075f * h);
 			startPos = Vector2(0.065f * w, 0.075f * h);

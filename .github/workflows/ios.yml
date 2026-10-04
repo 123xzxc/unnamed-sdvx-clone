@@ -33,6 +33,11 @@ jobs:
       DEPS_DIR: ${{ github.workspace }}/build-ios/vcpkg-installed
       VCPKG_ROOT: ${{ github.workspace }}/vcpkg
       APP_NAME: usc-game
+      # A push build has no workflow_dispatch inputs, so "${{ inputs.http_enabled }}"
+      # expands to an empty string there. Comparing that against "false" happens
+      # to work today, but relying on it is fragile: be explicit about the
+      # default by normalising the value in one place and using it everywhere.
+      HTTP_ENABLED: ${{ github.event_name == 'workflow_dispatch' && inputs.http_enabled || 'true' }}
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -75,7 +80,7 @@ jobs:
           # set http_enabled to false to drop cpr from the manifest and build
           # against the API-compatible stub instead (see platform/ios/stubs/cpr).
           MANIFEST_DIR="${GITHUB_WORKSPACE}/platform/ios"
-          if [ "${{ inputs.http_enabled }}" == "false" ]; then
+          if [ "${HTTP_ENABLED}" == "false" ]; then
             MANIFEST_DIR="${BUILD_DIR}/nohttp-manifest"
             python3 platform/ios/scripts/make_nohttp_manifest.py \
               platform/ios/vcpkg.json "${MANIFEST_DIR}/vcpkg.json"
@@ -89,7 +94,7 @@ jobs:
       - name: Configure CMake
         run: |
           EXTRA=""
-          if [ "${{ inputs.http_enabled }}" == "false" ]; then
+          if [ "${HTTP_ENABLED}" == "false" ]; then
             EXTRA="-DUSC_IOS_HTTP=OFF"
           fi
 
@@ -112,7 +117,7 @@ jobs:
         continue-on-error: true
         run: |
           EXTRA=""
-          if [ "${{ inputs.http_enabled }}" == "false" ]; then
+          if [ "${HTTP_ENABLED}" == "false" ]; then
             EXTRA="-DUSC_IOS_HTTP=OFF"
           fi
 

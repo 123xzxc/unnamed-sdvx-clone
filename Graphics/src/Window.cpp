@@ -1025,6 +1025,17 @@ namespace Graphics
 		evt.type = pressed ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP;
 		evt.button.state = pressed ? SDL_PRESSED : SDL_RELEASED;
 		evt.button.clicks = 1;
+		/*
+			The UI backends read the cursor position from the button event itself
+			(evt.button.x/y), not from the last motion event: NanoVG's Nuklear SDL
+			backend does nk_input_button(ctx, ..., evt->button.x, evt->button.y).
+			Injected button events that leave those at zero make every tap look
+			like a click in the top left corner, so the settings screen could not
+			be used with the touch panel. The position is taken from the tracked
+			cursor, which InjectMousePosition() keeps up to date.
+		*/
+		evt.button.x = m_impl->m_mousePos.x;
+		evt.button.y = m_impl->m_mousePos.y;
 		switch(button)
 		{
 		case MouseButton::Left:

@@ -149,7 +149,7 @@ namespace cpr
 	{
 		Response response;
 		response.error.code = ErrorCode::INTERNAL_ERROR;
-		response.error.message = "HTTP support is not compiled into this iOS build";
+		response.error.message = "This build was compiled without HTTP support (USC_IOS_HTTP=OFF). Copy song folders into the app Files folder to play them.";
 		return response;
 	}
 
