@@ -960,6 +960,21 @@ bool Application::m_Init()
 	String version = Utility::Sprintf("%d.%d.%d", VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH);
 	Logf("Version: %s", Logger::Severity::Info, version.c_str());
 
+	/*
+		Everything the device builds are diagnosed with goes here: which binary is
+		running, where it keeps its data, and what the graphics stack turned out to
+		be. Asking the player to report these one by one was the slow part of every
+		round, so usc-ios.log records them up front instead.
+	*/
+	Logf("Platform: %s", Logger::Severity::Info, SDL_GetPlatform());
+	{
+		SDL_version linked;
+		SDL_GetVersion(&linked);
+		Logf("SDL: %d.%d.%d (headers %d.%d.%d)", Logger::Severity::Info,
+			linked.major, linked.minor, linked.patch,
+			SDL_MAJOR_VERSION, SDL_MINOR_VERSION, SDL_PATCHLEVEL);
+	}
+
 #ifdef EMBEDDED
 	Log("Embeedded version.");
 #endif
@@ -1020,6 +1035,7 @@ bool Application::m_Init()
 			Path::gameDir = iOSPlatform::GetGameDataPath();
 
 		iOSPlatform::InstallGameDataIfNeeded(Path::gameDir);
+		Logf("Game data: %s", Logger::Severity::Info, Path::gameDir);
 	}
 #endif
 

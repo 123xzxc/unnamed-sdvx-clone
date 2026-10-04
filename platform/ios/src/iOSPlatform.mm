@@ -9,6 +9,7 @@
 #include <Shared/Path.hpp>
 #include <Shared/Files.hpp>
 #include <Shared/Log.hpp>
+#include "iOSLog.h"
 
 const char* const iOSPlatform::kGameDataFolderName = "unnamed-sdvx-clone";
 
@@ -119,6 +120,20 @@ void iOSPlatform::Init()
 
 	// Fullscreen game: get the home indicator out of the way.
 	SDL_SetHint(SDL_HINT_IOS_HIDE_HOME_INDICATOR, "2");
+
+	/*
+		Route every Log()/Logf() of the engine into the writable game directory.
+		The built-in logger picks its file during static initialization, long
+		before Path::gameDir exists, so on iOS it targets the read-only .app
+		bundle and silently records nothing. Installing the sink here - still
+		early, but after Path::gameDir is usable - gives the device builds a log
+		that can actually be read back through the Files app.
+	*/
+	Logger::SetSink(&iOSLog::WriteLine);
+	// Touch the log so the file is created here; the next line then reports the
+	// real path instead of the empty string GetPath() returns before opening.
+	iOSLog::WriteLine(Logger::Severity::Info, "iOS: session start");
+	Logf("iOS: logging to \"%s\"", Logger::Severity::Info, iOSLog::GetPath());
 
 	SetIdleTimerDisabled(true);
 }

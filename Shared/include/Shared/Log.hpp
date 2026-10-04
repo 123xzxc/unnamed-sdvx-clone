@@ -56,6 +56,20 @@ public:
 	// Sets the log level, logs for >= level
 	void SetLogLevel(Logger::Severity level);
 
+	/*
+		Secondary sink, called for every message that reaches the log.
+
+		The iOS build needs its own persistent file because the primary log
+		destination is decided before the game directory exists (see
+		platform/ios/src/iOSLog.cpp). A plain function pointer rather than an
+		observer interface keeps the hot path branch-free and avoids pulling a
+		container into the logger.
+	*/
+	typedef void (*Sink)(Logger::Severity severity, const char* message);
+	static void SetSink(Sink sink);
+
+	static Sink m_sink;
+
 private:
 	class Logger_Impl* m_impl;
 };

@@ -20,6 +20,26 @@ void SkinHttp::m_requestLoop()
 			cr.r = r->r.get();
 			cr.url = r->url;
 
+			/*
+				Failed requests are invisible on the device: the script only sees a
+				non-200 status and the player has to report it by hand. Recording both
+				the status and libcurl's error text here makes usc-ios.log the place
+				to look when the in-game browser stays empty.
+			*/
+			if(cr.r.error.code == cpr::ErrorCode::OK && cr.r.status_code < 300)
+			{
+				Logf("Http: %s -> %d (%d bytes)", Logger::Severity::Info, cr.url,
+					cr.r.status_code, (int)cr.r.text.size());
+			}
+			else
+			{
+				// cpr::Error::message is a std::string, not the engine's String, so it has to
+				// be converted before it can be handed to Sprintf as a %s argument.
+				const String errorText(cr.r.error.message.c_str());
+				Logf("Http: %s FAILED status=%d error=%s", Logger::Severity::Warning, cr.url,
+					cr.r.status_code, errorText);
+			}
+
 			//push result and pop request
 			m_mutex.lock();
 			delete r;
@@ -121,6 +141,7 @@ int SkinHttp::lGetAsync(lua_State * L)
 	cpr::Header header = HeaderFromLuaTable(L, 3);
 	int callback = luaL_ref(L, LUA_REGISTRYINDEX);
 	AsyncRequest* r = new AsyncRequest(L, cpr::GetAsync(cpr::Url{ url }, header), callback, url);
+	Logf("Http: GET %s", Logger::Severity::Info, url);
 	m_mutex.lock();
 	m_requests.push(r);
 	m_mutex.unlock();
@@ -134,6 +155,7 @@ int SkinHttp::lPostAsync(lua_State * L)
 	cpr::Header header = HeaderFromLuaTable(L, 4);
 	int callback = luaL_ref(L, LUA_REGISTRYINDEX);
 	AsyncRequest* r = new AsyncRequest(L, cpr::PostAsync(cpr::Url{ url }, cpr::Body{ *payload }, header), callback, url);
+	Logf("Http: POST %s", Logger::Severity::Info, url);
 	m_mutex.lock();
 	m_requests.push(r);
 	m_mutex.unlock();

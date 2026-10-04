@@ -166,6 +166,15 @@ void Logger::Log(const String& msg, Logger::Severity severity)
 	m_impl->Write(msg);
 	m_impl->Write("\n");
 	m_impl->Unlock();
+
+	/*
+		Mirror the line into the secondary sink. It gets the bare message rather
+		than the coloured terminal output, because the sink writes to a file the
+		user reads in a text editor. Deliberately outside the lock: the sink has
+		its own, and holding both invites a deadlock if it ever logs back.
+	*/
+	if(m_sink)
+		m_sink(severity, msg.c_str());
 }
 void Logger::WriteHeader(Severity severity)
 {
@@ -178,6 +187,11 @@ void Logger::Write(const String& msg)
 void Logger::SetLogLevel(Logger::Severity level)
 {
 	m_impl->SetLogLevel(level);
+}
+Logger::Sink Logger::m_sink = nullptr;
+void Logger::SetSink(Sink sink)
+{
+	m_sink = sink;
 }
 void Log(const String& msg, Logger::Severity severity)
 {
