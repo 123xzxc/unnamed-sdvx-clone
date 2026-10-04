@@ -5,6 +5,84 @@
 
 namespace Graphics
 {
+#ifdef USC_IOS
+	/*
+		The skin shaders in bin/skins/**/*.vs|*.fs are written for the desktop
+		core-profile pipeline, and two constructs in them are simply not part of
+		GLSL ES 3.00:
+
+		  * "#extension GL_ARB_separate_shader_objects : enable" - the extension
+		    that lets the desktop path compile stages individually with
+		    glCreateShaderProgramv. ES rejects the name outright, and because
+		    #version has to come first it ends up directly after it, which is the
+		    "#extension must always be before any non-preprocessor tokens" error
+		    seen in usc-ios.log. Every shader in the default skin began with it,
+		    so every material failed to load and the game rendered white.
+
+		  * "out gl_PerVertex { vec4 gl_Position; };" - a redeclaration of a
+		    built-in interface block that only exists in desktop GLSL. ES provides
+		    gl_Position directly, so the block is dropped.
+
+		Rewriting here rather than editing the 42 shipped shader files keeps
+		skins the user installs themselves working too, and leaves the desktop
+		builds byte-for-byte untouched.
+	*/
+	String DowngradeDesktopShader(const String& source)
+	{
+		String out;
+		out.reserve(source.size());
+
+		size_t pos = 0;
+		while(pos <= source.size())
+		{
+			size_t eol = source.find('\n', pos);
+			String line = source.substr(pos, eol == String::npos ? String::npos : eol - pos);
+			// Trailing CR from a CRLF file would otherwise end up inside the shader.
+			String trimmed = line;
+			trimmed.Trim('\r');
+			// Trim() only strips the given character, so leading spaces and tabs are
+			// removed explicitly to make the comparisons below indentation-proof.
+			// substr() is used instead of erase() because the String wrapper only
+			// re-exports a subset of the std::basic_string members.
+			size_t indent = 0;
+			while(indent < trimmed.size() && (trimmed[indent] == ' ' || trimmed[indent] == '\t'))
+				indent++;
+			if(indent > 0)
+				trimmed = trimmed.substr(indent);
+
+			if(trimmed.substr(0, 10).compare("#extension") == 0)
+			{
+				// Desktop-only extension directive: drop the whole line.
+			}
+			else if(trimmed.compare("out gl_PerVertex") == 0)
+			{
+				// Skip the block body and its closing brace as well.
+				size_t blockEnd = source.find("};", pos);
+				if(blockEnd == String::npos)
+					blockEnd = pos;
+				pos = blockEnd + 2;
+				// Consume the rest of that line.
+				size_t after = source.find('\n', pos);
+				pos = (after == String::npos) ? source.size() + 1 : after + 1;
+				continue;
+			}
+			else
+			{
+				out += line;
+				if(eol == String::npos)
+					break;
+				out += '\n';
+			}
+
+			if(eol == String::npos)
+				break;
+			pos = eol + 1;
+		}
+
+		return out;
+	}
+#endif
+
 #ifdef EMBEDDED
 	const uint32 typeMap[] =
 	{
@@ -98,6 +176,9 @@ namespace Graphics
 				context is ES 3.0, so the shaders are compiled as GLSL ES 3.00
 				with the same location convention as the desktop path.
 			*/
+			// The shipped skin shaders are desktop GLSL; strip the parts GLSL ES
+			// 3.00 has no equivalent for before prepending the version directive.
+			sourceStr = DowngradeDesktopShader(sourceStr);
 			sourceStr = "#version 300 es\n#define EMBEDDED\n#define target target\n#define texture texture\nprecision mediump float;\n"
 				+ sourceStr;
 #else
