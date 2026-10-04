@@ -11,6 +11,15 @@ set(CPR_ENABLE_SSL ON)
 if(USC_IOS AND NOT USC_IOS_HTTP)
     # HTTP disabled for this iOS build: cpr is replaced by an API compatible shim
     # that fails every request, so no libcurl has to be built for iOS.
+    #
+    # stubs/cpr/cpr.h and stubs/cpr/util.h are included as "cpr/cpr.h" and
+    # "cpr/util.h", so platform/ios/stubs is the include root here.
+    #
+    # This used to leak into HTTP builds: the discord stub lived in the same
+    # folder and exported it PUBLIC, so Main/stdafx.h found stubs/cpr/cpr.h
+    # even when the real cpr was linked, and every request answered with the
+    # stub's "compiled without HTTP support" error. The discord stub now sits
+    # in stubs/discord_rpc so the two cannot overlap.
     add_library(cpr INTERFACE)
     target_include_directories(cpr INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/../platform/ios/stubs)
 elseif(USC_IOS)
@@ -38,9 +47,9 @@ if(USC_IOS)
     # discord-rpc is a desktop IPC client; iOS only allows IPC through declared
     # app extensions, so the calls are stubbed out instead.
     add_library(discord-rpc STATIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/../platform/ios/stubs/discord_rpc_stub.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../platform/ios/stubs/discord_rpc/discord_rpc_stub.cpp
     )
-    target_include_directories(discord-rpc PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../platform/ios/stubs)
+    target_include_directories(discord-rpc PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../platform/ios/stubs/discord_rpc)
 else()
     add_subdirectory(discord-rpc)
     target_include_directories(discord-rpc PUBLIC discord-rpc/include)
