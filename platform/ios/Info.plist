@@ -24,15 +24,20 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 
-	<!-- Landscape only: the game plays in landscape, portrait skins are handled by
-	     requesting a rotation at runtime through SDL_HINT_ORIENTATIONS. -->
+	<!-- The stage and almost every skin are laid out for portrait, so portrait is
+	     listed first and is the orientation the game asks for at startup. Landscape
+	     stays declared as well: some skins are drawn for it, and iOS refuses a
+	     runtime rotation into an orientation the bundle does not list. -->
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
+		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>

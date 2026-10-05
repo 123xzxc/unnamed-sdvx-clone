@@ -71,7 +71,18 @@ void GameConfig::InitDefaults()
 	Set(GameConfigKeys::ScreenY, -1);
 	Set(GameConfigKeys::VSync, false);
 	Set(GameConfigKeys::ShowFps, false);
+	/*
+		iOS hands the game a portrait window now (see iOSPlatform::Init), and the
+		stage is a 9:16 playfield. Leaving this off made Application::m_OnWindowResized
+		take the "use the window as-is" branch, so on an iPad the 3:4 window was
+		rendered with a landscape projection and the playfield came out sheared.
+		On desktop the setting stays off; the user can still toggle it in Settings.
+	*/
+	#ifdef USC_IOS
+	Set(GameConfigKeys::ForcePortrait, true);
+	#else
 	Set(GameConfigKeys::ForcePortrait, false);
+	#endif
 	Set(GameConfigKeys::SkipScore, true);
 
 	Set(GameConfigKeys::HitWindowPerfect, HitWindow::NORMAL.perfect);

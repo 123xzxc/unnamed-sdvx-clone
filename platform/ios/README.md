@@ -154,9 +154,9 @@ USC_IOS_HTTP=OFF ./build.sh all
 
 ## 5. 已知限制
 
-* 竖屏皮肤（`ForcePortrait`）需要设备旋转到竖屏；当前 `Info.plist` 只声明了横屏，
-  想用竖屏皮肤需要调用 `iOSPlatform::SetLandscapeOnly(false)` 并放开 plist 里的
-  方向声明。
+* 游戏默认以竖屏启动：`iOSPlatform::Init` 请求 `Portrait`，`Info.plist` 同时声明了
+  竖屏与横屏（iOS 会拒绝旋转到未声明的方向），iOS 上 `ForcePortrait` 默认为开，
+  舞台按 9:16 居中呈现。想在横屏下玩可以在设置里关掉 `ForcePortrait` 并把设备转横。
 * 屏幕控制器的布局是横屏专用的，尚未为竖屏重新排布。
 * 一半透明度的控件在明亮背景的皮肤上可能不够清晰。
 * 未做 Metal/ANGLE 后端；如果 Apple 移除 OpenGL ES，需要接入 ANGLE。
