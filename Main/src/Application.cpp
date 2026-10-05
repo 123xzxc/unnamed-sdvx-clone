@@ -2450,6 +2450,18 @@ void Application::m_OnWindowResized(const Vector2i &newSize)
 			g_gameConfig.Set(GameConfigKeys::ScreenHeight, newSize.y);
 		}
 	}
+
+#ifdef USC_IOS
+	/*
+		One line per resize so a device log shows exactly which resolution, aspect
+		ratio and viewport the frame was laid out with. A playfield that is sheared
+		or stretched is almost always g_aspectRatio disagreeing with g_resolution
+		here, and that is invisible without the numbers.
+	*/
+	Logf("iOS: resize %dx%d -> resolution %dx%d, aspect %.4f, forcePortrait %d",
+		Logger::Severity::Info, newSize.x, newSize.y, g_resolution.x, g_resolution.y,
+		g_aspectRatio, g_gameConfig.GetBool(GameConfigKeys::ForcePortrait) ? 1 : 0);
+#endif
 }
 
 void Application::m_OnWindowMoved(const Vector2i& newPos)

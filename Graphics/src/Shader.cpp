@@ -74,16 +74,21 @@ namespace Graphics
 		return out;
 	}
 
-	String DowngradeDesktopShader(const String& source, bool /*isVertexShader*/)
+	String DowngradeDesktopShader(const String& source, bool isVertexShader)
 	{
-		/*
-			The vertex/fragment distinction used to matter: vertex input declarations
-			were kept and everything else was dropped. Both are now kept (only the
-			layout prefix is removed), so the parameter is no longer read. It stays in
-			the signature to avoid churning the call site.
-		*/
-			String out;
+		String out;
 		out.reserve(source.size());
+
+		/*
+			Vertex inputs are numbered in declaration order, which is exactly the
+			order Mesh::SetData() binds the streams in. Most of the shipped vertex
+			shaders only declare locations in their desktop branch, so the ES 3.00
+			build was relying on the compiler to hand out 0, 1, ... by itself. It
+			does, but it is not required to, and a swap of the position and texcoord
+			streams is what makes the playfield and the notes come out skewed.
+			Every input is given an explicit location here instead.
+		*/
+		int vertexInputLocation = 0;
 
 		size_t pos = 0;
 		while(pos <= source.size())
@@ -120,36 +125,62 @@ namespace Graphics
 				(trimmed.find(") in ") != String::npos || trimmed.find(") out ") != String::npos))
 			{
 				/*
-					Desktop GLSL pins stage interface locations; GLSL ES 3.00 rejects
-					layout(location=N) on in/out with an Invalid use of layout error.
+					Desktop GLSL pins stage interface locations. GLSL ES 3.00 only allows
+					a location on a vertex input (and a fragment output); on a vertex output
+					or a fragment input it is rejected outright:
 
-					The qualifier alone is removed and the declaration behind it is kept,
-					including vertex inputs: Mesh::SetData feeds the streams in declaration
-					order with index 0, 1, ... and that stays aligned because lines are only
-					rewritten, never reordered.
+						background.vs:10: Invalid use of layout 'location'   (out vec2 texVp)
+						bg.fs:7:         Invalid use of layout 'location'   (in vec2 texVp)
 
-					This used to drop the whole line. For a vertex input that only cost the
-					binding hint and the attribute still bound by order, but for a vertex
-					output or a fragment input it deleted the declaration itself, so the two
-					stages disagreed about the interface. Coordinates were then read from
-					whatever happened to be in registers, which is the garbled text and
-					track graphics reported with the previous build.
+					Vertex inputs are the exception and keep theirs. Mesh::SetData binds the
+					streams by index in declaration order, and an unqualified input may be
+					given any location by the compiler, so dropping the qualifier here would
+					leave the attribute binding to chance. The outputs and fragment inputs
+					are matched by name at link time, so only their qualifier is removed and
+					the declaration behind it is kept: "layout(location=1) out vec2 texVp;"
+					becomes "out vec2 texVp;".
+
+					Dropping the whole line (instead of just the qualifier) is what removed
+					the interface declarations and garbled the playfield in the previous
+					build.
 				*/
-				size_t close = trimmed.find(") ");
-				if(close != String::npos)
+				const bool isInput = trimmed.find(") in ") != String::npos;
+				if(isInput && isVertexShader)
 				{
-					String rest = trimmed.substr(close + 2);
-					out += rest;
+					// Valid ES 3.00, and needed for the attribute binding. Keep the
+					// numbering in step with the inputs that are added below.
+					{
+						size_t eq = trimmed.find("location=");
+						int explicitLoc = 0;
+						for(size_t p = (eq == String::npos) ? trimmed.size() : eq + 9;
+							p < trimmed.size() && trimmed[p] >= '0' && trimmed[p] <= '9'; p++)
+							explicitLoc = explicitLoc * 10 + (trimmed[p] - '0');
+						if(eq != String::npos && explicitLoc >= vertexInputLocation)
+							vertexInputLocation = explicitLoc + 1;
+					}
+					out += line;
 					if(eol == String::npos)
 						break;
 					out += '\n';
 				}
 				else
 				{
-					out += line;
-					if(eol == String::npos)
-						break;
-					out += '\n';
+					size_t close = trimmed.find(") ");
+					if(close != String::npos)
+					{
+						String rest = trimmed.substr(close + 2);
+						out += rest;
+						if(eol == String::npos)
+							break;
+						out += '\n';
+					}
+					else
+					{
+						out += line;
+						if(eol == String::npos)
+							break;
+						out += '\n';
+					}
 				}
 			}
 			else if(trimmed.compare("out gl_PerVertex") == 0)
@@ -166,7 +197,20 @@ namespace Graphics
 			}
 			else
 			{
-				out += StripFloatSuffix(WidenFloatConstants(line));
+				/*
+					A vertex input that reached this branch has no location yet (the
+					layout() branch above handles the ones that do), so it gets the next
+					one in declaration order. This is what keeps the attribute streams
+					lined up with the vertex struct the mesh was uploaded with.
+				*/
+				String emitted = line;
+				if(isVertexShader && trimmed.size() > 3 && trimmed.substr(0, 3).compare("in ") == 0)
+				{
+					emitted = line.substr(0, indent) +
+						Utility::Sprintf("layout(location=%d) ", vertexInputLocation) + trimmed;
+					vertexInputLocation++;
+				}
+				out += StripFloatSuffix(WidenFloatConstants(emitted));
 				if(eol == String::npos)
 					break;
 				out += '\n';
@@ -460,7 +504,7 @@ namespace Graphics
 			// The shipped skin shaders are desktop GLSL; strip the parts GLSL ES
 			// 3.00 has no equivalent for before prepending the version directive.
 			sourceStr = DowngradeDesktopShader(sourceStr, m_type == ShaderType::Vertex);
-			sourceStr = "#version 300 es\n#define EMBEDDED\n#define target target\n#define texture texture\nprecision mediump float;\n"
+			sourceStr = "#version 300 es\n#define EMBEDDED\n#define target target\n#define texture texture\nprecision highp float;\nprecision highp int;\n"
 				+ sourceStr;
 #else
 			sourceStr = "#version 100\n#define EMBEDDED\n#define target gl_FragColor\n#define texture texture2D\nprecision mediump float;\n" + sourceStr;
