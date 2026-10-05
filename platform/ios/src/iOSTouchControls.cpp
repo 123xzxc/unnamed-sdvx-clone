@@ -54,9 +54,12 @@ namespace
 		// Last finger position and where the finger went down, in game pixels.
 		Vector2 lastPos;
 		Vector2 dragOrigin;
-		// Which way a knob is being turned: -1 until the gesture has moved far
-		// enough to tell, then 0 for horizontal and 1 for vertical.
-		int knobAxis = -1;
+		// Knob gesture state. The angle is measured around the knob centre in
+		// radians, 0 pointing up and growing clockwise, the way a knob reads.
+		// knobTracking stays false until the finger has left the dead zone, so
+		// there is never a bogus first sample to compare against.
+		float knobLastAngle = 0.0f;
+		bool knobTracking = false;
 	};
 
 	/*
@@ -154,15 +157,30 @@ namespace
 	constexpr float kPi = 3.14159265358979f;
 
 	/*
-		A finger turns a knob. The direction that counts as "turning" is decided
-		once per gesture from whichever way the finger actually moved, and then
-		locked: summing the horizontal and vertical movement (what this used to
-		do) meant that the sideways wobble of a thumb pivoting on the glass was
-		added to the real movement, and the laser jittered left and right.
+		Knob handling follows the PHAC firmware the player pointed at. An EC11
+		encoder emits one "detent" per physical click there, and every click is
+		split into SMOOTHING_FACTOR mouse steps that are spread over the next few
+		frames with the remainder carried into the following frame. Reversing the
+		knob empties whatever is still queued, so the leftover steps of the old
+		direction can never be sent and the laser does not jump back and forth.
+
+		On the touch screen the finger replaces the encoder shaft: only the change
+		of the angle around the knob centre, quantised into detents, is used. A
+		thumb resting on the glass has no angle change, so its wobble cannot feed
+		the laser at all; the earlier version summed the horizontal and vertical
+		finger movement, which is why the laser jittered left and right.
 	*/
-	constexpr float kKnobAxisLockPixels = 14.0f;
-	// How many full turns the laser makes when a finger crosses the whole screen.
-	constexpr float kKnobTurnsPerSwipe = 2.0f;
+	// Detents per full turn of the finger around a knob.
+	constexpr float kKnobDetentsPerTurn = 24.0f;
+	// How many times the laser turns while the finger makes one full turn.
+	constexpr float kKnobTurnsPerFingerTurn = 2.0f;
+	// A finger this close to the centre has no meaningful angle to measure.
+	constexpr float kKnobDeadZone = 0.35f;
+	// PHAC's SMOOTHING_FACTOR: how much of the queue goes out each frame. The
+	// firmware loops every millisecond while a frame here is roughly 17 ms, so
+	// the divisor is smaller to keep the same feel: half of what is left is sent
+	// per frame, which settles one detent in about 50 ms.
+	constexpr float kKnobSmoothing = 2.0f;
 
 	// Extra room around a control that still counts as a hit, so the player does
 	// not have to hit the exact outline.
@@ -271,14 +289,19 @@ public:
 
 	std::map<int32, Target> fingers;
 
-	// Movement that has not reached a whole pixel yet. Without this, slow knob
-	// drags would lose motion when it is truncated to an integer.
-	float knobAccum[2] = { 0.0f, 0.0f };
+	// Angle the finger has turned each knob by since it went down, only used
+	// to draw the needle.
+	float knobAngle[2] = { 0.0f, 0.0f };
+	// Turn that has not reached a whole detent yet, in radians.
+	float knobDetentAccum[2] = { 0.0f, 0.0f };
+	// Mouse movement produced by those detents that has not been sent yet, in
+	// game pixels, plus the direction it is heading. QueueKnobPixels() empties
+	// the queue when the player reverses, exactly like PHAC does.
+	float knobPending[2] = { 0.0f, 0.0f };
+	int knobPendingDir[2] = { 0, 0 };
 	// Visual feedback: 1 right after a touch, fading out so the playfield stays
 	// readable while a song is playing.
 	float knobActivity[2] = { 0.0f, 0.0f };
-	// Angle the finger has turned each knob by, only used to draw the needle.
-	float knobAngle[2] = { 0.0f, 0.0f };
 	float slotActivity[SlotCount] = { 0.0f };
 	bool mousePassthroughDown = false;
 	// Set by the top-left toggle: the panel stops drawing and stops grabbing
@@ -329,9 +352,10 @@ public:
 	void Tick(float deltaTime)
 	{
 		for(int i = 0; i < 2; i++)
+		{
 			knobActivity[i] = std::fmax(0.0f, knobActivity[i] - deltaTime * 0.4f);
-		for(int i = 0; i < SlotCount; i++)
-			slotActivity[i] = std::fmax(0.0f, slotActivity[i] - deltaTime * 2.5f);
+			FlushKnob(i);
+		}
 	}
 
 	/*
@@ -342,7 +366,7 @@ public:
 		ppr with pow(200 / sens, 1.2). Repeating that here lets the knob inject
 		exactly the number of pixels that produce the angle the finger asked for,
 		so the touch knob feels the same wherever the mouse slider is set. The
-		sign is dropped on purpose: dragging right always turns the laser the same
+		sign is dropped on purpose: turning a knob clockwise always turns the laser the same
 		way, and InvertLaserInput is still there for players who want it flipped.
 	*/
 	float MouseRadiansPerPixel() const
@@ -465,48 +489,128 @@ public:
 		}
 	}
 
-	// Turns a knob by the distance the finger has travelled since it went down.
-	void ApplyKnobTurn(int index, const Target& target, const Vector2& pos)
+	/*
+		Quantises the angle the finger has swept around the knob into detents,
+		the way an EC11 encoder produces one click per mechanical step, and
+		queues the mouse movement each of them is worth.
+	*/
+	void TurnKnob(int index, Target& target, const Vector2& pos)
 	{
-		if(!window)
+		const Vector2 centre = layout.knobPos[index];
+		const Vector2 rel = pos - centre;
+		const float radius = std::sqrt(rel.x * rel.x + rel.y * rel.y);
+		/*
+			Right on top of the centre the angle is meaningless and swings wildly
+			with every pixel, so the gesture only starts once the finger has left
+			the dead zone. Until then the needle simply does not move.
+		*/
+		if(radius < layout.knobRadius * kKnobDeadZone)
 			return;
 
-		const Vector2 total = pos - target.dragOrigin;
-		if(target.knobAxis < 0)
+		// 0 radians points up and grows clockwise, which is how a knob reads.
+		const float angle = std::atan2(rel.x, -rel.y);
+		if(!target.knobTracking)
 		{
-			/*
-				The first few pixels only decide which way the knob turns; until
-				then nothing is sent to the game. 14 game pixels is well below the
-				smallest deliberate movement and well above a resting thumb.
-			*/
-			if(std::fabs(total.x) + std::fabs(total.y) < kKnobAxisLockPixels)
-				return;
+			target.knobTracking = true;
+			target.knobLastAngle = angle;
+			return;
 		}
 
-		const int axis = (target.knobAxis >= 0) ? target.knobAxis :
-			(std::fabs(total.x) >= std::fabs(total.y) ? 0 : 1);
-		const float travel = (axis == 0) ? total.x : total.y;
-		const float span = std::fmax((axis == 0) ? resolution.x : resolution.y, 1.0f);
+		/*
+			Only the change since the last sample is used, and it is wrapped into
+			(-pi, pi] so crossing the top of the circle cannot be mistaken for a
+			half turn backwards.
+		*/
+		float delta = angle - target.knobLastAngle;
+		while(delta > kPi)
+			delta -= 2.0f * kPi;
+		while(delta < -kPi)
+			delta += 2.0f * kPi;
+		target.knobLastAngle = angle;
 
-		// A full swipe across the screen is worth kKnobTurnsPerSwipe turns.
-		const float angle = (travel / span) * kKnobTurnsPerSwipe * 2.0f * kPi;
-		knobAngle[index] = angle;
+		knobAngle[index] += delta;
+		knobDetentAccum[index] += delta;
 		knobActivity[index] = 1.0f;
 
+		const float detent = (2.0f * kPi) / kKnobDetentsPerTurn;
+		while(std::fabs(knobDetentAccum[index]) >= detent)
+		{
+			const float direction = (knobDetentAccum[index] > 0.0f) ? 1.0f : -1.0f;
+			knobDetentAccum[index] -= direction * detent;
+			QueueKnobDetents(index, direction);
+		}
+	}
+
+	// Queues the mouse pixels one detent is worth, dropping whatever is still
+	// queued the moment the player turns the other way.
+	void QueueKnobDetents(int index, float direction)
+	{
 		const float radiansPerPixel = MouseRadiansPerPixel();
 		if(radiansPerPixel <= 0.0f)
 			return;
 
-		knobAccum[index] += angle / radiansPerPixel;
-		const int32 whole = (int32)std::floor(knobAccum[index]);
-		if(whole == 0)
-			return;
-		knobAccum[index] -= (float)whole;
+		const float radiansPerDetent =
+			(kKnobTurnsPerFingerTurn * 2.0f * kPi) / kKnobDetentsPerTurn;
+		QueueKnobPixels(index, (radiansPerDetent / radiansPerPixel) * direction);
+	}
 
-		// Knob 0 feeds the mouse X axis and knob 1 the mouse Y axis, which is
-		// exactly the mapping the game already uses to turn mouse movement into
-		// laser input (Mouse_Laser0Axis / Mouse_Laser1Axis), so both knobs behave
-		// like the real endless encoders.
+	void QueueKnobPixels(int index, float pixels)
+	{
+		if(pixels == 0.0f)
+			return;
+
+		const int direction = (pixels > 0.0f) ? 1 : -1;
+		/*
+			PHAC empties the interpolation queue when the encoder reverses so the
+			leftover steps of the old direction are never sent; doing the same here
+			is what stops a quick left-right flick from pushing the laser back the
+			way it came.
+		*/
+		if(knobPendingDir[index] != 0 && knobPendingDir[index] != direction)
+			knobPending[index] = 0.0f;
+		knobPendingDir[index] = direction;
+		knobPending[index] += pixels;
+	}
+
+	/*
+		Sends a slice of the queued knob movement every frame, the way PHAC's
+		main loop does: one kKnobSmoothing-th of what is left, rounded to whole
+		pixels, with the remainder carried into the next frame. The total number
+		of pixels is the same as injecting them all at once; only the timing
+		changes, which is what makes the laser glide instead of snapping.
+
+		Knob 0 feeds the mouse X axis and knob 1 the mouse Y axis, which is
+		exactly the mapping the game already uses to turn mouse movement into
+		laser input (Mouse_Laser0Axis / Mouse_Laser1Axis).
+	*/
+	void FlushKnob(int index)
+	{
+		if(!window)
+			return;
+
+		const float pending = knobPending[index];
+		const float magnitude = std::fabs(pending);
+		if(magnitude < 1.0f)
+			return;
+
+		/*
+			round(magnitude / kKnobSmoothing), but never more than what is left and
+			never zero: the final pixels would otherwise stay queued forever.
+		*/
+		float step = std::floor(magnitude / kKnobSmoothing + 0.5f);
+		if(step < 1.0f || step > magnitude)
+			step = std::floor(magnitude);
+		if(pending < 0.0f)
+			step = -step;
+
+		knobPending[index] -= step;
+		if(std::fabs(knobPending[index]) < 0.5f)
+		{
+			knobPending[index] = 0.0f;
+			knobPendingDir[index] = 0;
+		}
+
+		const int32 whole = (int32)step;
 		if(index == 0)
 			window->InjectMouseMotion(whole, 0);
 		else
@@ -542,8 +646,15 @@ public:
 		{
 			const int index = (target.kind == TargetKind::KnobLeft) ? 0 : 1;
 			knobActivity[index] = 1.0f;
-			knobAccum[index] = 0.0f;
 			knobAngle[index] = 0.0f;
+			knobDetentAccum[index] = 0.0f;
+			/*
+				Whatever the previous gesture had queued belongs to a turn the
+				player has already finished, so it is dropped here: a fresh press
+				must not keep the laser moving on its own.
+			*/
+			knobPending[index] = 0.0f;
+			knobPendingDir[index] = 0;
 		}
 		else if(target.kind == TargetKind::Hide)
 		{
@@ -596,19 +707,7 @@ public:
 		if(target.kind == TargetKind::KnobLeft || target.kind == TargetKind::KnobRight)
 		{
 			const int index = (target.kind == TargetKind::KnobLeft) ? 0 : 1;
-			// The direction is decided from the movement since the finger landed,
-			// so the answer never changes half way through a turn.
-			if(target.knobAxis < 0)
-			{
-				const Vector2 total = pos - target.dragOrigin;
-				if(std::fabs(total.x) + std::fabs(total.y) < kKnobAxisLockPixels)
-				{
-					knobActivity[index] = 1.0f;
-					return;
-				}
-				target.knobAxis = (std::fabs(total.x) >= std::fabs(total.y)) ? 0 : 1;
-			}
-			ApplyKnobTurn(index, target, pos);
+			TurnKnob(index, target, pos);
 			return;
 		}
 
@@ -743,8 +842,10 @@ public:
 		}
 		fingers.clear();
 		mousePassthroughDown = false;
-		knobAccum[0] = knobAccum[1] = 0.0f;
 		knobAngle[0] = knobAngle[1] = 0.0f;
+		knobDetentAccum[0] = knobDetentAccum[1] = 0.0f;
+		knobPending[0] = knobPending[1] = 0.0f;
+		knobPendingDir[0] = knobPendingDir[1] = 0;
 		for(int i = 0; i < 2; i++)
 			knobActivity[i] = 0.0f;
 		for(int i = 0; i < SlotCount; i++)
