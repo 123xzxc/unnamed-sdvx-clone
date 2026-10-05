@@ -215,6 +215,20 @@ namespace Graphics
 		sdc->params = params;
 		// Set Font texture map
 		sdc->params.SetParameter("mainTex", text->GetTexture());
+		/*
+			The embedded font shader (font.fs, in the skin's shaders folder)
+			texelFetch, so it normalises the glyph coordinates on the GPU instead:
+
+				texture(mainTex, fsTex / vec2(mapSize))
+
+			so mapSize has to be bound with every text draw. Only the scissored
+			overload used to set it, and that overload is never called, which left
+			the uniform at its GL default of (0, 0): every TextRes draw divided by
+			zero and sampled an undefined texel, which is what shredded the page
+			names in the settings sidebar. The mesh texcoords are absolute atlas
+			texels, so the atlas size is exactly the right divisor.
+		*/
+		sdc->params.SetParameter("mapSize", text->GetTexture()->GetSize());
 		sdc->worldTransform = worldTransform;
 		m_orderedCommands.push_back(sdc);
 	}

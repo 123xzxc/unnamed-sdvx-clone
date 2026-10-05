@@ -28,6 +28,9 @@ namespace
 		Button,
 		Start,
 		Back,
+		// Toggles the visibility of the whole on-screen panel. This is not a game
+		// input: it never injects a key, it only flips a flag on the overlay.
+		Hide,
 		// Touch started on a control but moved outside of it. It keeps the button
 		// held while the finger stays off the panel, and is only released when the
 		// finger is lifted.
@@ -39,7 +42,7 @@ namespace
 	{
 		SlotBT0 = 0, SlotBT1, SlotBT2, SlotBT3,
 		SlotFX0, SlotFX1,
-		SlotStart, SlotBack,
+		SlotStart, SlotBack, SlotHide,
 		SlotCount,
 	};
 
@@ -56,7 +59,8 @@ namespace
 
 		It follows the console layout the game emulates: two knobs on the far left
 		and right, BT-A/B/C plus FX-L for the left hand, BT-D plus FX-R for the
-		right hand, and small Start/Back buttons in the top corners.
+		right hand, and a top row holding the panel toggle (left), Start (centre)
+		and Back (right).
 
 		Everything is stored as a fraction of the game resolution so the panel
 		scales to any iPad (or iPhone) screen.
@@ -80,6 +84,7 @@ namespace
 
 		Vector2 startPos;
 		Vector2 backPos;
+		Vector2 hidePos;
 		Vector2 cornerSize;
 
 		void Compute(const Vector2& res)
@@ -140,9 +145,16 @@ namespace
 			*/
 			btPos[3] = Vector2(w - btPos[0].x, btRowY);
 
-			cornerSize = Vector2(0.085f * w, 0.075f * h);
-			startPos = Vector2(0.065f * w, 0.075f * h);
-			backPos = Vector2(0.935f * w, 0.075f * h);
+			/*
+				Top row, laid out the way the player asked for: the panel toggle
+				sits in the left corner, Start is centred so either thumb can reach
+				it, and Back keeps the right corner. All three are anchored to the
+				top edge because that is the only strip the playfield never uses.
+			*/
+			cornerSize = Vector2(0.080f * w, 0.070f * h);
+			hidePos = Vector2(0.062f * w, 0.062f * h);
+			startPos = Vector2(0.500f * w, 0.062f * h);
+			backPos = Vector2(0.938f * w, 0.062f * h);
 		}
 	};
 
@@ -176,6 +188,29 @@ namespace
 		const float dy = a.y - b.y;
 		return std::sqrt(dx * dx + dy * dy);
 	}
+
+	// Shared look for the three top-row buttons (panel toggle, Start, Back).
+	void DrawCornerButton(NVGcontext* vg, const Vector2& p, const Vector2& s,
+						  const char* label, float activity)
+	{
+		const float alpha = kIdleAlpha + (kActiveAlpha - kIdleAlpha) * activity;
+
+		nvgBeginPath(vg);
+		nvgRoundedRect(vg, p.x - s.x * 0.5f, p.y - s.y * 0.5f, s.x, s.y, s.y * 0.35f);
+		nvgFillColor(vg, nvgRGBAf(0.6f, 0.6f, 0.6f, alpha * 0.30f));
+		nvgFill(vg);
+
+		nvgBeginPath(vg);
+		nvgRoundedRect(vg, p.x - s.x * 0.5f, p.y - s.y * 0.5f, s.x, s.y, s.y * 0.35f);
+		nvgStrokeColor(vg, nvgRGBAf(0.85f, 0.85f, 0.85f, alpha));
+		nvgStrokeWidth(vg, s.y * 0.10f);
+		nvgStroke(vg);
+
+		nvgFontSize(vg, s.y * 0.42f);
+		nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+		nvgFillColor(vg, nvgRGBAf(1.0f, 1.0f, 1.0f, alpha + (1.0f - alpha) * 0.5f * activity));
+		nvgText(vg, p.x, p.y, label, nullptr);
+	}
 }
 
 class iOSTouchControls_Impl
@@ -195,6 +230,9 @@ public:
 	float knobActivity[2] = { 0.0f, 0.0f };
 	float slotActivity[SlotCount] = { 0.0f };
 	bool mousePassthroughDown = false;
+	// Set by the top-left toggle: the panel stops drawing and stops grabbing
+	// touches, and only the toggle itself stays live.
+	bool controlsHidden = false;
 
 	SDL_Scancode boundKey[SlotCount] = { SDL_SCANCODE_UNKNOWN };
 
@@ -247,6 +285,23 @@ public:
 	{
 		Target t;
 
+		/*
+			The panel toggle is always live. It is checked before anything else and
+			gets a wider grab margin than the other controls, because while the
+			panel is hidden it is the only way to bring it back.
+		*/
+		if(PointInRect(pos, layout.hidePos, layout.cornerSize * 1.4f))
+		{
+			t.kind = TargetKind::Hide;
+			t.slot = SlotHide;
+			return t;
+		}
+
+		// A hidden panel is invisible and inert: every other touch falls through
+		// to the game UI as a normal tap.
+		if(controlsHidden)
+			return t;
+
 		for(int i = 0; i < 2; i++)
 		{
 			if(Distance(pos, layout.knobPos[i]) <= layout.knobRadius * kKnobGrabScale)
@@ -297,6 +352,36 @@ public:
 		return t;
 	}
 
+	/*
+		Releases every key and mouse button the overlay is holding without
+		dropping the finger bookkeeping: the entries are turned into ButtonDrag so
+		lifting the finger later cannot inject a second release. Used when the
+		panel is hidden mid-touch, so nothing stays stuck while it is invisible.
+	*/
+	void ReleaseKeys()
+	{
+		if(!window)
+			return;
+		for(auto& entry : fingers)
+		{
+			Target& t = entry.second;
+			if(t.kind == TargetKind::Passthrough)
+			{
+				window->InjectMouseButton(MouseButton::Left, false);
+				mousePassthroughDown = false;
+			}
+			else if(t.kind == TargetKind::Button || t.kind == TargetKind::Start ||
+					t.kind == TargetKind::Back)
+			{
+				window->InjectKey(t.key, false);
+			}
+			if(t.slot >= 0)
+				slotActivity[t.slot] = 0.0f;
+			t.kind = TargetKind::ButtonDrag;
+			t.key = SDL_SCANCODE_UNKNOWN;
+		}
+	}
+
 	// The trailing pressure argument is part of the Window::OnFinger* delegate
 	// signature; the overlay does not use it.
 	void OnFingerDown(int32 id, Vector2 pos, float pressure)
@@ -326,6 +411,25 @@ public:
 			const int index = (target.kind == TargetKind::KnobLeft) ? 0 : 1;
 			knobActivity[index] = 1.0f;
 		}
+		else if(target.kind == TargetKind::Hide)
+		{
+			/*
+				The panel toggle is handled entirely by the overlay: it flips the
+				visibility flag instead of injecting a game key. Hiding the panel
+				also releases whatever it was holding, so a button that was down
+				when the toggle was tapped cannot stay stuck.
+			*/
+			slotActivity[SlotHide] = 1.0f;
+			if(controlsHidden)
+			{
+				controlsHidden = false;
+			}
+			else
+			{
+				ReleaseKeys();
+				controlsHidden = true;
+			}
+		}
 		else
 		{
 			window->InjectKey(target.key, true);
@@ -351,6 +455,9 @@ public:
 			window->InjectMousePosition((int32)pos.x, (int32)pos.y);
 			return;
 		}
+
+		if(target.kind == TargetKind::Hide)
+			return; // The toggle fires on press and ignores any dragging.
 
 		if(target.kind == TargetKind::KnobLeft || target.kind == TargetKind::KnobRight)
 		{
@@ -381,6 +488,10 @@ public:
 		// Buttons: sliding onto another control releases the old one and presses the
 		// new one, which is what a player expects from a touch panel.
 		Target newTarget = HitTest(pos);
+		// Sliding onto the panel toggle counts as sliding off the pad: the toggle
+		// only reacts to a fresh press, never to a finger that wandered over it.
+		if(newTarget.kind == TargetKind::Hide)
+			newTarget = Target();
 
 		/*
 			Sliding off a button must not turn the touch into a UI tap. The old
@@ -523,6 +634,17 @@ void iOSTouchControls_Impl::Render()
 	nvgSave(vg);
 	nvgFontFace(vg, "fallback");
 
+	if(controlsHidden)
+	{
+		/*
+			While hidden, only the toggle is drawn, faintly, so the playfield is
+			completely unobstructed but the panel can always be brought back.
+		*/
+		DrawCornerButton(vg, layout.hidePos, layout.cornerSize, "SHOW", slotActivity[SlotHide]);
+		nvgRestore(vg);
+		return;
+	}
+
 	// Playfield hint: keeps the panel visible without covering the notes.
 	for(int i = 0; i < 2; i++)
 	{
@@ -624,32 +746,15 @@ void iOSTouchControls_Impl::Render()
 		nvgText(vg, p.x, p.y, kFxLabels[i], nullptr);
 	}
 
-	// Start / Back.
+	// Panel toggle (left), Start (centre) and Back (right).
 	{
-		const char* const labels[2] = { "START", "BACK" };
-		const Vector2 positions[2] = { layout.startPos, layout.backPos };
-		for(int i = 0; i < 2; i++)
+		const char* const labels[3] = { "HIDE", "START", "BACK" };
+		const Vector2 positions[3] = { layout.hidePos, layout.startPos, layout.backPos };
+		const int slots[3] = { SlotHide, SlotStart, SlotBack };
+		for(int i = 0; i < 3; i++)
 		{
-			const int slot = SlotStart + i;
-			const float alpha = kIdleAlpha + (kActiveAlpha - kIdleAlpha) * slotActivity[slot];
-			const Vector2 p = positions[i];
-			const Vector2 s = layout.cornerSize;
-
-			nvgBeginPath(vg);
-			nvgRoundedRect(vg, p.x - s.x * 0.5f, p.y - s.y * 0.5f, s.x, s.y, s.y * 0.35f);
-			nvgFillColor(vg, nvgRGBAf(0.6f, 0.6f, 0.6f, alpha * 0.30f));
-			nvgFill(vg);
-
-			nvgBeginPath(vg);
-			nvgRoundedRect(vg, p.x - s.x * 0.5f, p.y - s.y * 0.5f, s.x, s.y, s.y * 0.35f);
-			nvgStrokeColor(vg, nvgRGBAf(0.85f, 0.85f, 0.85f, alpha));
-			nvgStrokeWidth(vg, s.y * 0.10f);
-			nvgStroke(vg);
-
-			nvgFontSize(vg, s.y * 0.42f);
-			nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
-			nvgFillColor(vg, nvgRGBAf(1.0f, 1.0f, 1.0f, alpha + (1.0f - alpha) * 0.5f * slotActivity[slot]));
-			nvgText(vg, p.x, p.y, labels[i], nullptr);
+			DrawCornerButton(vg, positions[i], layout.cornerSize, labels[i],
+							 slotActivity[slots[i]]);
 		}
 	}
 

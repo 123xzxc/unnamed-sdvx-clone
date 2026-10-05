@@ -24,13 +24,15 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 
-	<!-- The stage and almost every skin are laid out for portrait, so portrait is
-	     listed first and is the orientation the game asks for at startup. Landscape
-	     stays declared as well: some skins are drawn for it, and iOS refuses a
-	     runtime rotation into an orientation the bundle does not list. -->
+	<!-- All four orientations are declared so the player can rotate freely: the
+	     renderer derives its projection from g_aspectRatio, and the stage, the
+	     camera and the on-screen controller all have a portrait and a landscape
+	     variant. iOS refuses to rotate into an orientation the bundle does not
+	     list, so every one of them has to be here. -->
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>

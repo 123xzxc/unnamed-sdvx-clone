@@ -94,7 +94,19 @@ nk_sdl_device_create(void)
         "}\n";
     static const GLchar *fragment_shader =
         NK_SHADER_VERSION
+        /*
+            The settings screen bakes a CJK atlas up to 8192x8192, and the UVs
+            are normalised on the CPU. In mediump (fp16) the interpolation
+            between the corners of a glyph quad only has a few bits left at that
+            scale, so the sample lands on the neighbouring cell and the sidebar
+            text comes out shredded. highp is required for fragment shaders in
+            ES 3.0, and the guard keeps the shader valid where it is not.
+        */
+        "#ifdef GL_FRAGMENT_PRECISION_HIGH\n"
+        "precision highp float;\n"
+        "#else\n"
         "precision mediump float;\n"
+        "#endif\n"
         "uniform sampler2D Texture;\n"
         "varying vec2 Frag_UV;\n"
         "varying vec4 Frag_Color;\n"

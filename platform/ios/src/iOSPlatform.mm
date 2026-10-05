@@ -114,14 +114,13 @@ void iOSPlatform::Init()
 	SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
 
 	/*
-		The stage, the song wheel and nearly every skin are laid out for portrait,
-		which is also what the reference build looks like. Earlier this requested
-		landscape and left the plist landscape-only, so the whole game was rendered
-		through a landscape projection: the playfield came out sheared sideways and
-		the HUD was stretched across the screen. Portrait is now the startup
-		orientation, and the plist lists it so iOS accepts the request.
+		Every orientation is allowed so the player can rotate the device freely.
+		The projection, the stage and the on-screen controller all branch on
+		g_aspectRatio and have a portrait and a landscape variant, so nothing here
+		needs to pin a direction. iOS only accepts a rotation into an orientation
+		listed in Info.plist, which is why the plist lists all four as well.
 	*/
-	SDL_SetHint(SDL_HINT_ORIENTATIONS, "Portrait");
+	SDL_SetHint(SDL_HINT_ORIENTATIONS, "Portrait PortraitUpsideDown LandscapeLeft LandscapeRight");
 	SDL_SetHint(SDL_HINT_APP_NAME, "USC-Game");
 
 	// Fullscreen game: get the home indicator out of the way.

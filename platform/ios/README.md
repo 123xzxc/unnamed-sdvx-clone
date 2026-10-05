@@ -49,6 +49,7 @@ iPadOS 上没有键盘，所以新增了一个屏幕控制器 `iOSTouchControls`
 | BT-A/B/C/D | `Window::InjectKey()` | 玩家当前配置的键位（`Key_BT0`…`Key_BT3`） |
 | FX-L / FX-R | `Window::InjectKey()` | `Key_FX0` / `Key_FX1` |
 | START / BACK | `Window::InjectKey()` | `Key_BTS` / `Key_Back` |
+| 左上角开关 | 无（仅切换覆盖层可见性） | 隐藏/显示整个虚拟控制器，隐藏时不拦截触摸 |
 | 空白区域 | `Window::InjectMousePosition/Button()` | 给 nuklear 界面用的鼠标点击 |
 
 这样做的结果：录像回放、判定、分数上传、校准界面看到的都是「正常」输入，不需要为
@@ -139,12 +140,14 @@ USC_IOS_HTTP=OFF ./build.sh all
 进入游戏后屏幕底部会出现虚拟控制器：
 
 ```
- [START]                                              [BACK]
+ [HIDE]                     [START]                   [BACK]
 
    (KNOB)                                                  (KNOB)
   FX-L  A    B    C          D                        FX-R
 ```
 
+* 左上角 `HIDE`：隐藏整个虚拟控制器（画面完全无遮挡），此时只有左上角那个按钮还
+  会响应触摸，其余触摸全部转发给游戏界面；再按一次（标签变成 `SHOW`）恢复。
 * 旋钮：在旋钮区域内按任意方向拖动（水平或垂直都可），等价于街机旋钮的无限旋转。
   灵敏度沿用游戏里的 `Mouse_Sensitivity` 设置。
 * 按钮：支持多点触控与滑动切换（手指滑到另一个按钮会松开旧的、按下新的）。
@@ -154,10 +157,11 @@ USC_IOS_HTTP=OFF ./build.sh all
 
 ## 5. 已知限制
 
-* 游戏默认以竖屏启动：`iOSPlatform::Init` 请求 `Portrait`，`Info.plist` 同时声明了
-  竖屏与横屏（iOS 会拒绝旋转到未声明的方向），iOS 上 `ForcePortrait` 默认为开，
-  舞台按 9:16 居中呈现。想在横屏下玩可以在设置里关掉 `ForcePortrait` 并把设备转横。
-* 屏幕控制器的布局是横屏专用的，尚未为竖屏重新排布。
+* 横竖屏可以自由旋转：`Info.plist` 声明了四个方向，`iOSPlatform::Init` 也不再锁定
+  `Portrait`。渲染用的投影、相机和舞台都会按 `g_aspectRatio` 自动切换横/竖版本，
+  所以 `ForcePortrait` 默认关闭（它只会把 9:16 的舞台放进黑边里，横屏时反而不合适）。
+  想回到「竖屏 + 居中舞台」的老样子，可以在设置里打开 `ForcePortrait`。
+* 屏幕控制器的位置全部是分辨率的百分比，横竖屏都能用；竖屏时按钮相对偏大一些。
 * 一半透明度的控件在明亮背景的皮肤上可能不够清晰。
 * 未做 Metal/ANGLE 后端；如果 Apple 移除 OpenGL ES，需要接入 ANGLE。
 * 进入后台 / 失去焦点时会调用 `iOSTouchControls::ReleaseAll()` 松开所有触屏按键，
@@ -187,8 +191,26 @@ USC_IOS_HTTP=OFF ./build.sh all
   触摸事件委托、事件分发重构（`HandleEvent`）
 * `Main/include/Application.hpp`、`Main/src/Application.cpp`：游戏目录、窗口尺寸、
   屏幕控制器生命周期、关闭自动更新与灯光插件
-* `Main/src/GameConfig.cpp`：iOS 默认输入设备（旋钮=鼠标）
+* `Main/src/GameConfig.cpp`：iOS 默认输入设备（旋钮=鼠标）、`ForcePortrait` 默认关闭
 * `Main/src/Main.cpp`：iOS 平台初始化
+* `Graphics/src/Shader.cpp`：把桌面 GLSL 降级成 GLSL ES 3.00（`#version 300 es`、
+  `#extension` / `gl_PerVertex` / `layout(...)` 处理、显式顶点属性 location、highp）
+* `Graphics/src/RenderQueue.cpp`：文本绘制补上 `mapSize`（见下面的字体说明）
+* `Main/nuklear/nuklear_sdl_gles2.h`：nuklear 片元着色器改用 highp
+* `bin/skins/Default/shaders/*.vs/.fs`：为不支持 `texelFetch` 的目标加 `EMBEDDED` 分支
+
+### 字体渲染的两个坑（设置界面文字错乱）
+
+设置界面左侧页签用的是引擎自己的 `TextRes` 路径（不是 nuklear），它把字形在
+图集里的**绝对像素坐标**当成纹理坐标传给着色器。GLES 上没有 `texelFetch` 时
+`font.fs` 用 `fsTex / vec2(mapSize)` 归一化，所以：
+
+1. `mapSize` 这个 uniform 以前只在 `RenderQueue::DrawScissored(text)` 里绑定，而那个
+   重载从来没被调用过，于是它一直是 GL 默认值 `(0,0)`，每次文字绘制都在除以零。
+   现在 `RenderQueue::Draw(text)` 也会绑定图集尺寸。
+2. 片元着色器里的插值精度必须是 `highp`：图集宽达 8192 时 mediump（fp16）在一个字形
+   四边形内只剩几位有效数字，采样会落到隔壁格子。iOS 的 GLSL ES 3.00 前缀和
+   nuklear 的着色器都已经改成 `highp`。
 
 另外 `platform/ios/stubs/cpr/cpr.h` 为 `cpr::AsyncResponse` 补齐了 `wait_for()`，
 因为 `ScoreScreen` 会先轮询再取结果；没有它的话 `USC_IOS_HTTP=OFF` 的构建无法编译。
