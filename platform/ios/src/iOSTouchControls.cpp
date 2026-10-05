@@ -51,19 +51,31 @@ namespace
 		TargetKind kind = TargetKind::None;
 		SDL_Scancode key = SDL_SCANCODE_UNKNOWN;
 		int slot = -1;
+		// Last finger position and where the finger went down, in game pixels.
 		Vector2 lastPos;
+		Vector2 dragOrigin;
+		// Which way a knob is being turned: -1 until the gesture has moved far
+		// enough to tell, then 0 for horizontal and 1 for vertical.
+		int knobAxis = -1;
 	};
 
 	/*
 		Layout of the on-screen controller.
 
-		It follows the console layout the game emulates: two knobs on the far left
-		and right, BT-A/B/C plus FX-L for the left hand, BT-D plus FX-R for the
-		right hand, and a top row holding the panel toggle (left), Start (centre)
-		and Back (right).
+		It mirrors the console the game emulates, arranged the way the player
+		sketched it on a landscape iPad:
+
+			[ HIDE ]            ( START )            [ BACK ]
+
+			 (KNOB)                                    (KNOB)
+
+			        A     B     C      D
+
+			      [ FX-L ]          [ FX-R ]
 
 		Everything is stored as a fraction of the game resolution so the panel
-		scales to any iPad (or iPhone) screen.
+		scales to any iPad (or iPhone) screen, in either orientation. Sizes come
+		from the shorter edge so a portrait screen does not get giant buttons.
 	*/
 	struct Layout
 	{
@@ -71,13 +83,7 @@ namespace
 		float knobRadius = 0.0f;
 
 		Vector2 btPos[4];
-		float btRadius = 0.0f;
-
-		// Corner rows the BT/FX buttons are anchored to.
-		float btRowY = 0.0f;
-		float fxRowY = 0.0f;
-		// Top edge of the panel the row is drawn on.
-		float padTop = 0.0f;
+		float btSize = 0.0f;
 
 		Vector2 fxPos[2];
 		Vector2 fxSize;
@@ -85,90 +91,84 @@ namespace
 		Vector2 startPos;
 		Vector2 backPos;
 		Vector2 hidePos;
-		Vector2 cornerSize;
+		float cornerSize = 0.0f;
 
 		void Compute(const Vector2& res)
 		{
 			const float w = res.x;
 			const float h = res.y;
-
-			knobRadius = 0.085f * h;
-		knobPos[0] = Vector2(0.090f * w, 0.460f * h);
-		knobPos[1] = Vector2(0.910f * w, 0.460f * h);
+			const float unit = std::fmin(w, h);
+			const bool portrait = h > w;
 
 			/*
-				The panel is split in half and each hand gets one side, laid out
-				from the screen edge inwards:
-
-					| FX-L  A  B  C          D  FX-R |
-
-				The wide FX buttons sit in the outermost corners because that is
-				where a thumb naturally rests on a tablet; the round BT buttons
-				come next, with BT-C and BT-D facing the middle of the screen.
-
-				The row has to be laid out in screen widths, not in multiples of
-				the button radius: a radius derived from the screen height is much
-				smaller than the width available, so radius based steps left a hole
-				in the middle of the panel and pushed FX-L on top of BT-A.
+				Top row. The toggle sits in the left corner, Start in the centre so
+				either thumb can reach it, and Back in the right corner. Portrait
+				screens are much taller, so the row hugs the top edge there.
 			*/
-			const float padHalfH = 0.105f * h;
-			btRadius = 0.062f * h;
-			btRowY = 0.885f * h - padHalfH;
-			padTop = btRowY - padHalfH;
+			cornerSize = 0.078f * unit;
+			const float topY = (portrait ? 0.045f : 0.100f) * h;
+			hidePos = Vector2(0.075f * unit, topY);
+			startPos = Vector2(0.500f * w, topY);
+			backPos = Vector2(w - hidePos.x, topY);
 
-			// Anchor points and the space between neighbouring controls, all as
-			// fractions of the screen width so the row always spans the panel.
-			const float edgeMargin = 0.022f * w;
-			const float gap = 0.022f * w;
-
-			fxSize = Vector2(0.052f * w, 0.150f * h);
-			fxRowY = btRowY;
-
-			// FX-L and FX-R are flush with the left/right screen edges.
-			fxPos[0] = Vector2(edgeMargin + fxSize.x * 0.5f, fxRowY);
-			fxPos[1] = Vector2(w - edgeMargin - fxSize.x * 0.5f, fxRowY);
-
-			// BT-A/B/C start right of FX-L and march towards the middle.
-			const float btStepX = btRadius * 2.0f + gap;
-			const float btFirstX = edgeMargin + fxSize.x + gap + btRadius;
-			for(int i = 0; i < 3; i++)
-				btPos[i] = Vector2(btFirstX + btStepX * (float)i, btRowY);
+			// Knobs on the upper left and right, clear of the playfield centre.
+			knobRadius = 0.085f * unit;
+			const float knobX = (portrait ? 0.125f : 0.105f) * w;
+			const float knobY = (portrait ? 0.340f : 0.360f) * h;
+			knobPos[0] = Vector2(knobX, knobY);
+			knobPos[1] = Vector2(w - knobX, knobY);
 
 			/*
-				BT-D mirrors BT-A about the centre of the screen and BT-C mirrors
-				BT-B, so the right hand is laid out exactly like the left one
-				reflected: | FX-L A B C ... C B A FX-R |. The previous version
-				placed BT-D with its own formula (measuring from FX-R instead of
-				reusing btStepX), which left a 4x too wide hole between BT-C and
-				BT-D and pushed BT-D away from the middle of the screen, so the
-				right hand buttons did not line up with the note lanes.
+				The four BT buttons sit in a row across the middle of the screen,
+				centred as a group. BT-D is set slightly further apart than A/B/C,
+				which is both what the console does and what the sketch shows.
 			*/
-			btPos[3] = Vector2(w - btPos[0].x, btRowY);
+			btSize = 0.105f * unit;
+			const float btGap = 0.035f * w;
+			const float btDGap = 0.065f * w;
+			const float btTotal = btSize * 4.0f + btGap * 2.0f + btDGap;
+			float btX = (w - btTotal) * 0.5f + btSize * 0.5f;
+			btPos[0] = Vector2(btX, (portrait ? 0.600f : 0.610f) * h);
+			btX += btSize + btGap;
+			btPos[1] = Vector2(btX, btPos[0].y);
+			btX += btSize + btGap;
+			btPos[2] = Vector2(btX, btPos[0].y);
+			btX += btSize + btDGap;
+			btPos[3] = Vector2(btX, btPos[0].y);
 
 			/*
-				Top row, laid out the way the player asked for: the panel toggle
-				sits in the left corner, Start is centred so either thumb can reach
-				it, and Back keeps the right corner. All three are anchored to the
-				top edge because that is the only strip the playfield never uses.
+				FX-L and FX-R are the wide buttons at the bottom, one under each
+				half of the BT row.
 			*/
-			cornerSize = Vector2(0.080f * w, 0.070f * h);
-			hidePos = Vector2(0.062f * w, 0.062f * h);
-			startPos = Vector2(0.500f * w, 0.062f * h);
-			backPos = Vector2(0.938f * w, 0.062f * h);
+			const float fxY = (portrait ? 0.800f : 0.810f) * h;
+			fxSize = Vector2((portrait ? 0.300f : 0.200f) * w, 0.115f * unit);
+			const float fxOffset = (portrait ? 0.170f : 0.160f) * w;
+			fxPos[0] = Vector2(w * 0.5f - fxOffset, fxY);
+			fxPos[1] = Vector2(w * 0.5f + fxOffset, fxY);
 		}
 	};
 
 	const char* const kButtonLabels[4] = { "A", "B", "C", "D" };
 	const char* const kFxLabels[2] = { "FX-L", "FX-R" };
 
-	// Finger movement is handed to the mouse laser device 1:1; this only exists to
-	// make the knob a little less twitchy on a small screen.
-	constexpr float kKnobDragGain = 1.5f;
+	constexpr float kPi = 3.14159265358979f;
+
+	/*
+		A finger turns a knob. The direction that counts as "turning" is decided
+		once per gesture from whichever way the finger actually moved, and then
+		locked: summing the horizontal and vertical movement (what this used to
+		do) meant that the sideways wobble of a thumb pivoting on the glass was
+		added to the real movement, and the laser jittered left and right.
+	*/
+	constexpr float kKnobAxisLockPixels = 14.0f;
+	// How many full turns the laser makes when a finger crosses the whole screen.
+	constexpr float kKnobTurnsPerSwipe = 2.0f;
 
 	// Extra room around a control that still counts as a hit, so the player does
 	// not have to hit the exact outline.
-	constexpr float kKnobGrabScale = 1.9f;
-	constexpr float kButtonGrabScale = 1.3f;
+	constexpr float kKnobGrabScale = 1.35f;
+	constexpr float kButtonGrabScale = 1.15f;
+	constexpr float kToggleGrabScale = 1.30f;
 
 	// Opacity of the controls when idle and right after they were used.
 	constexpr float kIdleAlpha = 0.20f;
@@ -182,6 +182,11 @@ namespace
 			   p.y >= center.y - hh && p.y <= center.y + hh;
 	}
 
+	bool PointInSquare(const Vector2& p, const Vector2& center, float size)
+	{
+		return PointInRect(p, center, Vector2(size, size));
+	}
+
 	float Distance(const Vector2& a, const Vector2& b)
 	{
 		const float dx = a.x - b.x;
@@ -189,27 +194,70 @@ namespace
 		return std::sqrt(dx * dx + dy * dy);
 	}
 
-	// Shared look for the three top-row buttons (panel toggle, Start, Back).
-	void DrawCornerButton(NVGcontext* vg, const Vector2& p, const Vector2& s,
-						  const char* label, float activity)
+	float ActivityAlpha(float activity)
 	{
-		const float alpha = kIdleAlpha + (kActiveAlpha - kIdleAlpha) * activity;
+		return kIdleAlpha + (kActiveAlpha - kIdleAlpha) * activity;
+	}
+
+	// The Start/Back icons are the game's "home plate" pentagon.
+	void PentagonPath(NVGcontext* vg, const Vector2& c, float size)
+	{
+		const float r = size * 0.5f;
+		nvgBeginPath(vg);
+		for(int i = 0; i < 5; i++)
+		{
+			const float a = -kPi * 0.5f + (float)i * (kPi * 2.0f / 5.0f);
+			const float x = c.x + std::cos(a) * r;
+			const float y = c.y + std::sin(a) * r;
+			if(i == 0)
+				nvgMoveTo(vg, x, y);
+			else
+				nvgLineTo(vg, x, y);
+		}
+		nvgClosePath(vg);
+	}
+
+	// Panel toggle: a rounded square, so it is not mistaken for Start or Back.
+	void DrawToggle(NVGcontext* vg, const Vector2& p, float size, const char* label, float activity)
+	{
+		const float alpha = ActivityAlpha(activity);
+		const float r = size * 0.28f;
 
 		nvgBeginPath(vg);
-		nvgRoundedRect(vg, p.x - s.x * 0.5f, p.y - s.y * 0.5f, s.x, s.y, s.y * 0.35f);
-		nvgFillColor(vg, nvgRGBAf(0.6f, 0.6f, 0.6f, alpha * 0.30f));
+		nvgRoundedRect(vg, p.x - size * 0.5f, p.y - size * 0.5f, size, size, r);
+		nvgFillColor(vg, nvgRGBAf(0.85f, 0.55f, 0.25f, alpha * 0.35f));
 		nvgFill(vg);
 
 		nvgBeginPath(vg);
-		nvgRoundedRect(vg, p.x - s.x * 0.5f, p.y - s.y * 0.5f, s.x, s.y, s.y * 0.35f);
-		nvgStrokeColor(vg, nvgRGBAf(0.85f, 0.85f, 0.85f, alpha));
-		nvgStrokeWidth(vg, s.y * 0.10f);
+		nvgRoundedRect(vg, p.x - size * 0.5f, p.y - size * 0.5f, size, size, r);
+		nvgStrokeColor(vg, nvgRGBAf(1.0f, 0.80f, 0.45f, alpha));
+		nvgStrokeWidth(vg, size * 0.07f);
 		nvgStroke(vg);
 
-		nvgFontSize(vg, s.y * 0.42f);
+		nvgFontSize(vg, size * 0.30f);
 		nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
-		nvgFillColor(vg, nvgRGBAf(1.0f, 1.0f, 1.0f, alpha + (1.0f - alpha) * 0.5f * activity));
+		nvgFillColor(vg, nvgRGBAf(1.0f, 0.95f, 0.85f, alpha + (1.0f - alpha) * 0.6f * activity));
 		nvgText(vg, p.x, p.y, label, nullptr);
+	}
+
+	// Start / Back: the pentagon the game uses for those two buttons.
+	void DrawPentagonButton(NVGcontext* vg, const Vector2& p, float size, const char* label, float activity)
+	{
+		const float alpha = ActivityAlpha(activity);
+
+		PentagonPath(vg, p, size);
+		nvgFillColor(vg, nvgRGBAf(0.75f, 0.78f, 0.82f, alpha * 0.30f));
+		nvgFill(vg);
+
+		PentagonPath(vg, p, size);
+		nvgStrokeColor(vg, nvgRGBAf(0.92f, 0.94f, 0.97f, alpha));
+		nvgStrokeWidth(vg, size * 0.07f);
+		nvgStroke(vg);
+
+		nvgFontSize(vg, size * 0.26f);
+		nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+		nvgFillColor(vg, nvgRGBAf(1.0f, 1.0f, 1.0f, alpha + (1.0f - alpha) * 0.6f * activity));
+		nvgText(vg, p.x, p.y + size * 0.04f, label, nullptr);
 	}
 }
 
@@ -219,6 +267,7 @@ public:
 	Graphics::Window* window = nullptr;
 	Layout layout;
 	Vector2 resolution = Vector2(1280.0f, 720.0f);
+	Vector2i loggedResolution = Vector2i(-1, -1);
 
 	std::map<int32, Target> fingers;
 
@@ -228,6 +277,8 @@ public:
 	// Visual feedback: 1 right after a touch, fading out so the playfield stays
 	// readable while a song is playing.
 	float knobActivity[2] = { 0.0f, 0.0f };
+	// Angle the finger has turned each knob by, only used to draw the needle.
+	float knobAngle[2] = { 0.0f, 0.0f };
 	float slotActivity[SlotCount] = { 0.0f };
 	bool mousePassthroughDown = false;
 	// Set by the top-left toggle: the panel stops drawing and stops grabbing
@@ -264,6 +315,15 @@ public:
 		if(resolution.x <= 0.0f || resolution.y <= 0.0f)
 			resolution = Vector2(1280.0f, 720.0f);
 		layout.Compute(resolution);
+
+		const int32 width = (int32)resolution.x;
+		const int32 height = (int32)resolution.y;
+		if(width != loggedResolution.x || height != loggedResolution.y)
+		{
+			loggedResolution = Vector2i(width, height);
+			Logf("iOS: touch panel laid out for %dx%d (%s)", Logger::Severity::Info,
+				width, height, height > width ? "portrait" : "landscape");
+		}
 	}
 
 	void Tick(float deltaTime)
@@ -272,6 +332,29 @@ public:
 			knobActivity[i] = std::fmax(0.0f, knobActivity[i] - deltaTime * 0.4f);
 		for(int i = 0; i < SlotCount; i++)
 			slotActivity[i] = std::fmax(0.0f, slotActivity[i] - deltaTime * 2.5f);
+	}
+
+	/*
+		How many radians one mouse pixel is worth to the game.
+
+		Input::CalculateRealMouseSens() converts the Mouse_Sensitivity setting
+		into "6 / ppr" radians per pixel, and EstimatePprFromSens() estimates the
+		ppr with pow(200 / sens, 1.2). Repeating that here lets the knob inject
+		exactly the number of pixels that produce the angle the finger asked for,
+		so the touch knob feels the same wherever the mouse slider is set. The
+		sign is dropped on purpose: dragging right always turns the laser the same
+		way, and InvertLaserInput is still there for players who want it flipped.
+	*/
+	float MouseRadiansPerPixel() const
+	{
+		const float sens = g_gameConfig.GetFloat(GameConfigKeys::Mouse_Sensitivity);
+		const float magnitude = std::fabs(sens);
+		// A sensitivity of zero makes the game ignore the mouse device entirely,
+		// so there is no pixel count that would move the laser.
+		if(magnitude < 0.01f)
+			return 0.0f;
+		const float ppr = std::pow(200.0f / magnitude, 1.2f);
+		return 6.0f / ppr;
 	}
 
 	// SDL delivers touch coordinates normalized to 0..1 of the window, while the
@@ -290,7 +373,7 @@ public:
 			gets a wider grab margin than the other controls, because while the
 			panel is hidden it is the only way to bring it back.
 		*/
-		if(PointInRect(pos, layout.hidePos, layout.cornerSize * 1.4f))
+		if(PointInSquare(pos, layout.hidePos, layout.cornerSize * kToggleGrabScale))
 		{
 			t.kind = TargetKind::Hide;
 			t.slot = SlotHide;
@@ -313,7 +396,7 @@ public:
 
 		for(int i = 0; i < 4; i++)
 		{
-			if(Distance(pos, layout.btPos[i]) <= layout.btRadius * kButtonGrabScale)
+			if(PointInSquare(pos, layout.btPos[i], layout.btSize * kButtonGrabScale))
 			{
 				t.kind = TargetKind::Button;
 				t.slot = SlotBT0 + i;
@@ -333,7 +416,7 @@ public:
 			}
 		}
 
-		if(PointInRect(pos, layout.startPos, layout.cornerSize))
+		if(PointInSquare(pos, layout.startPos, layout.cornerSize))
 		{
 			t.kind = TargetKind::Start;
 			t.slot = SlotStart;
@@ -341,7 +424,7 @@ public:
 			return t;
 		}
 
-		if(PointInRect(pos, layout.backPos, layout.cornerSize))
+		if(PointInSquare(pos, layout.backPos, layout.cornerSize))
 		{
 			t.kind = TargetKind::Back;
 			t.slot = SlotBack;
@@ -382,6 +465,54 @@ public:
 		}
 	}
 
+	// Turns a knob by the distance the finger has travelled since it went down.
+	void ApplyKnobTurn(int index, const Target& target, const Vector2& pos)
+	{
+		if(!window)
+			return;
+
+		const Vector2 total = pos - target.dragOrigin;
+		if(target.knobAxis < 0)
+		{
+			/*
+				The first few pixels only decide which way the knob turns; until
+				then nothing is sent to the game. 14 game pixels is well below the
+				smallest deliberate movement and well above a resting thumb.
+			*/
+			if(std::fabs(total.x) + std::fabs(total.y) < kKnobAxisLockPixels)
+				return;
+		}
+
+		const int axis = (target.knobAxis >= 0) ? target.knobAxis :
+			(std::fabs(total.x) >= std::fabs(total.y) ? 0 : 1);
+		const float travel = (axis == 0) ? total.x : total.y;
+		const float span = std::fmax((axis == 0) ? resolution.x : resolution.y, 1.0f);
+
+		// A full swipe across the screen is worth kKnobTurnsPerSwipe turns.
+		const float angle = (travel / span) * kKnobTurnsPerSwipe * 2.0f * kPi;
+		knobAngle[index] = angle;
+		knobActivity[index] = 1.0f;
+
+		const float radiansPerPixel = MouseRadiansPerPixel();
+		if(radiansPerPixel <= 0.0f)
+			return;
+
+		knobAccum[index] += angle / radiansPerPixel;
+		const int32 whole = (int32)std::floor(knobAccum[index]);
+		if(whole == 0)
+			return;
+		knobAccum[index] -= (float)whole;
+
+		// Knob 0 feeds the mouse X axis and knob 1 the mouse Y axis, which is
+		// exactly the mapping the game already uses to turn mouse movement into
+		// laser input (Mouse_Laser0Axis / Mouse_Laser1Axis), so both knobs behave
+		// like the real endless encoders.
+		if(index == 0)
+			window->InjectMouseMotion(whole, 0);
+		else
+			window->InjectMouseMotion(0, whole);
+	}
+
 	// The trailing pressure argument is part of the Window::OnFinger* delegate
 	// signature; the overlay does not use it.
 	void OnFingerDown(int32 id, Vector2 pos, float pressure)
@@ -393,6 +524,7 @@ public:
 		pos = ToGameSpace(pos);
 		Target target = HitTest(pos);
 		target.lastPos = pos;
+		target.dragOrigin = pos;
 
 		if(target.kind == TargetKind::None)
 		{
@@ -410,6 +542,8 @@ public:
 		{
 			const int index = (target.kind == TargetKind::KnobLeft) ? 0 : 1;
 			knobActivity[index] = 1.0f;
+			knobAccum[index] = 0.0f;
+			knobAngle[index] = 0.0f;
 		}
 		else if(target.kind == TargetKind::Hide)
 		{
@@ -462,26 +596,19 @@ public:
 		if(target.kind == TargetKind::KnobLeft || target.kind == TargetKind::KnobRight)
 		{
 			const int index = (target.kind == TargetKind::KnobLeft) ? 0 : 1;
-			const Vector2 delta = pos - target.lastPos;
-			target.lastPos = pos;
-			knobActivity[index] = 1.0f;
-
-			// A knob does not care which way it is turned, so horizontal and vertical
-			// drags are both accepted and simply summed.
-			knobAccum[index] += (delta.x + delta.y) * kKnobDragGain;
-			const int32 whole = (int32)std::floor(knobAccum[index]);
-			if(whole == 0)
-				return;
-			knobAccum[index] -= (float)whole;
-
-			// Knob 0 feeds the mouse X axis and knob 1 the mouse Y axis. With the
-			// default Mouse_Laser0Axis/Mouse_Laser1Axis mapping that is exactly how
-			// the game already converts mouse movement into laser input, so both
-			// knobs behave like the real endless encoders.
-			if(index == 0)
-				window->InjectMouseMotion(whole, 0);
-			else
-				window->InjectMouseMotion(0, whole);
+			// The direction is decided from the movement since the finger landed,
+			// so the answer never changes half way through a turn.
+			if(target.knobAxis < 0)
+			{
+				const Vector2 total = pos - target.dragOrigin;
+				if(std::fabs(total.x) + std::fabs(total.y) < kKnobAxisLockPixels)
+				{
+					knobActivity[index] = 1.0f;
+					return;
+				}
+				target.knobAxis = (std::fabs(total.x) >= std::fabs(total.y)) ? 0 : 1;
+			}
+			ApplyKnobTurn(index, target, pos);
 			return;
 		}
 
@@ -530,6 +657,7 @@ public:
 		   newTarget.kind == TargetKind::Back)
 		{
 			newTarget.lastPos = pos;
+			newTarget.dragOrigin = pos;
 			window->InjectKey(newTarget.key, true);
 			if(newTarget.slot >= 0)
 				slotActivity[newTarget.slot] = 1.0f;
@@ -616,6 +744,7 @@ public:
 		fingers.clear();
 		mousePassthroughDown = false;
 		knobAccum[0] = knobAccum[1] = 0.0f;
+		knobAngle[0] = knobAngle[1] = 0.0f;
 		for(int i = 0; i < 2; i++)
 			knobActivity[i] = 0.0f;
 		for(int i = 0; i < SlotCount; i++)
@@ -632,6 +761,13 @@ void iOSTouchControls_Impl::Render()
 		return;
 
 	nvgSave(vg);
+	/*
+		The tickables draw inside the same nanovg frame and one of them may have
+		left a transform or a clipping rectangle behind. The overlay hit tests in
+		plain game pixels, so it has to draw in plain game pixels as well,
+		otherwise the buttons appear somewhere else than they react.
+	*/
+	nvgResetTransform(vg);
 	nvgFontFace(vg, "fallback");
 
 	if(controlsHidden)
@@ -640,94 +776,78 @@ void iOSTouchControls_Impl::Render()
 			While hidden, only the toggle is drawn, faintly, so the playfield is
 			completely unobstructed but the panel can always be brought back.
 		*/
-		DrawCornerButton(vg, layout.hidePos, layout.cornerSize, "SHOW", slotActivity[SlotHide]);
+		DrawToggle(vg, layout.hidePos, layout.cornerSize, "SHOW", slotActivity[SlotHide]);
 		nvgRestore(vg);
 		return;
 	}
 
-	// Playfield hint: keeps the panel visible without covering the notes.
+	// Knobs. The needle shows how far the finger has turned them, which is the
+	// only feedback an endless encoder can give.
 	for(int i = 0; i < 2; i++)
 	{
-		const float alpha = kIdleAlpha + (kActiveAlpha - kIdleAlpha) * knobActivity[i];
+		const float alpha = ActivityAlpha(knobActivity[i]);
 		const Vector2 p = layout.knobPos[i];
 		const float r = layout.knobRadius;
 
 		nvgBeginPath(vg);
 		nvgCircle(vg, p.x, p.y, r);
-		nvgFillColor(vg, nvgRGBAf(0.35f, 0.75f, 1.0f, alpha * 0.22f));
+		nvgFillColor(vg, nvgRGBAf(0.35f, 0.75f, 1.0f, alpha * 0.20f));
 		nvgFill(vg);
 
 		nvgBeginPath(vg);
 		nvgCircle(vg, p.x, p.y, r);
 		nvgStrokeColor(vg, nvgRGBAf(0.45f, 0.85f, 1.0f, alpha));
-		nvgStrokeWidth(vg, r * 0.10f);
+		nvgStrokeWidth(vg, r * 0.09f);
 		nvgStroke(vg);
 
 		nvgBeginPath(vg);
-		nvgCircle(vg, p.x, p.y, r * 0.16f);
+		nvgCircle(vg, p.x, p.y, r * 0.13f);
 		nvgFillColor(vg, nvgRGBAf(0.45f, 0.85f, 1.0f, alpha));
 		nvgFill(vg);
 
-		nvgFontSize(vg, r * 0.34f);
-		nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
-		nvgFillColor(vg, nvgRGBAf(1.0f, 1.0f, 1.0f, alpha * 0.9f));
-		nvgText(vg, p.x, p.y + r * 0.62f, "KNOB", nullptr);
+		nvgBeginPath(vg);
+		nvgMoveTo(vg, p.x, p.y);
+		nvgLineTo(vg, p.x + std::sin(knobAngle[i]) * r * 0.70f,
+					  p.y - std::cos(knobAngle[i]) * r * 0.70f);
+		nvgStrokeColor(vg, nvgRGBAf(0.75f, 0.95f, 1.0f, alpha));
+		nvgStrokeWidth(vg, r * 0.10f);
+		nvgStroke(vg);
 	}
 
-	/*
-		The felt the buttons are drawn on. Without it the controls float over the
-		playfield and it is impossible to tell where the panel actually is.
-	*/
-	{
-		const float rowTop = layout.padTop;
-		const float halfW = 0.5f * resolution.x;
-		const float radius = 0.04f * resolution.y;
-		const float padH = resolution.y - rowTop;
-
-		nvgBeginPath(vg);
-		nvgRoundedRect(vg, 0.0f, rowTop, halfW, padH, radius);
-		nvgFillColor(vg, nvgRGBAf(0.05f, 0.06f, 0.09f, 0.22f));
-		nvgFill(vg);
-
-		nvgBeginPath(vg);
-		nvgRoundedRect(vg, halfW, rowTop, halfW, padH, radius);
-		nvgFillColor(vg, nvgRGBAf(0.05f, 0.06f, 0.09f, 0.22f));
-		nvgFill(vg);
-	}
-
-	// BT buttons.
+	// BT buttons: squares, as on the console's button panel.
 	for(int i = 0; i < 4; i++)
 	{
 		const int slot = SlotBT0 + i;
-		const float alpha = kIdleAlpha + (kActiveAlpha - kIdleAlpha) * slotActivity[slot];
+		const float alpha = ActivityAlpha(slotActivity[slot]);
 		const Vector2 p = layout.btPos[i];
-		const float r = layout.btRadius;
+		const float s = layout.btSize;
+		const float radius = s * 0.18f;
 
 		nvgBeginPath(vg);
-		nvgCircle(vg, p.x, p.y, r);
+		nvgRoundedRect(vg, p.x - s * 0.5f, p.y - s * 0.5f, s, s, radius);
 		nvgFillColor(vg, nvgRGBAf(1.0f, 1.0f, 1.0f, alpha * 0.25f));
 		nvgFill(vg);
 
 		nvgBeginPath(vg);
-		nvgCircle(vg, p.x, p.y, r);
+		nvgRoundedRect(vg, p.x - s * 0.5f, p.y - s * 0.5f, s, s, radius);
 		nvgStrokeColor(vg, nvgRGBAf(1.0f, 1.0f, 1.0f, alpha));
-		nvgStrokeWidth(vg, r * 0.10f);
+		nvgStrokeWidth(vg, s * 0.07f);
 		nvgStroke(vg);
 
-		nvgFontSize(vg, r * 0.90f);
+		nvgFontSize(vg, s * 0.42f);
 		nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
 		nvgFillColor(vg, nvgRGBAf(1.0f, 1.0f, 1.0f, alpha + (1.0f - alpha) * 0.5f * slotActivity[slot]));
 		nvgText(vg, p.x, p.y, kButtonLabels[i], nullptr);
 	}
 
-	// FX buttons.
+	// FX buttons: the wide bars at the bottom.
 	for(int i = 0; i < 2; i++)
 	{
 		const int slot = SlotFX0 + i;
-		const float alpha = kIdleAlpha + (kActiveAlpha - kIdleAlpha) * slotActivity[slot];
+		const float alpha = ActivityAlpha(slotActivity[slot]);
 		const Vector2 p = layout.fxPos[i];
 		const Vector2 s = layout.fxSize;
-		const float radius = s.x * 0.35f;
+		const float radius = s.y * 0.25f;
 
 		nvgBeginPath(vg);
 		nvgRoundedRect(vg, p.x - s.x * 0.5f, p.y - s.y * 0.5f, s.x, s.y, radius);
@@ -737,26 +857,19 @@ void iOSTouchControls_Impl::Render()
 		nvgBeginPath(vg);
 		nvgRoundedRect(vg, p.x - s.x * 0.5f, p.y - s.y * 0.5f, s.x, s.y, radius);
 		nvgStrokeColor(vg, nvgRGBAf(1.0f, 0.85f, 0.25f, alpha));
-		nvgStrokeWidth(vg, s.x * 0.09f);
+		nvgStrokeWidth(vg, s.y * 0.09f);
 		nvgStroke(vg);
 
-		nvgFontSize(vg, s.x * 0.42f);
+		nvgFontSize(vg, s.y * 0.34f);
 		nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
 		nvgFillColor(vg, nvgRGBAf(1.0f, 0.9f, 0.5f, alpha + (1.0f - alpha) * 0.5f * slotActivity[slot]));
 		nvgText(vg, p.x, p.y, kFxLabels[i], nullptr);
 	}
 
-	// Panel toggle (left), Start (centre) and Back (right).
-	{
-		const char* const labels[3] = { "HIDE", "START", "BACK" };
-		const Vector2 positions[3] = { layout.hidePos, layout.startPos, layout.backPos };
-		const int slots[3] = { SlotHide, SlotStart, SlotBack };
-		for(int i = 0; i < 3; i++)
-		{
-			DrawCornerButton(vg, positions[i], layout.cornerSize, labels[i],
-							 slotActivity[slots[i]]);
-		}
-	}
+	// Top row: panel toggle (left), Start (centre) and Back (right).
+	DrawToggle(vg, layout.hidePos, layout.cornerSize, "HIDE", slotActivity[SlotHide]);
+	DrawPentagonButton(vg, layout.startPos, layout.cornerSize, "START", slotActivity[SlotStart]);
+	DrawPentagonButton(vg, layout.backPos, layout.cornerSize, "BACK", slotActivity[SlotBack]);
 
 	nvgRestore(vg);
 }
