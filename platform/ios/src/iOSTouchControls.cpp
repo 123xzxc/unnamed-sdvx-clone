@@ -54,12 +54,11 @@ namespace
 		// Last finger position and where the finger went down, in game pixels.
 		Vector2 lastPos;
 		Vector2 dragOrigin;
-		// Knob gesture state. The angle is measured around the knob centre in
-		// radians, 0 pointing up and growing clockwise, the way a knob reads.
-		// knobTracking stays false until the finger has left the dead zone, so
-		// there is never a bogus first sample to compare against.
-		float knobLastAngle = 0.0f;
-		bool knobTracking = false;
+		// Knob gesture state: how many detents this drag has produced so far.
+		// It is measured from where the finger went down, so it only changes
+		// when the finger really crosses another detent; a thumb wobbling on
+		// the glass cannot make the total drift.
+		int knobDetents = 0;
 	};
 
 	/*
@@ -164,18 +163,18 @@ namespace
 		knob empties whatever is still queued, so the leftover steps of the old
 		direction can never be sent and the laser does not jump back and forth.
 
-		On the touch screen the finger replaces the encoder shaft: only the change
-		of the angle around the knob centre, quantised into detents, is used. A
-		thumb resting on the glass has no angle change, so its wobble cannot feed
-		the laser at all; the earlier version summed the horizontal and vertical
-		finger movement, which is why the laser jittered left and right.
+		The touch screen has no shaft to twist, so a knob is turned by sliding the
+		finger sideways. Only the horizontal travel is measured, and that is what
+		keeps the laser steady: the earlier version summed the horizontal and
+		vertical movement, so the wobble of a thumb resting on the glass went
+		straight into the laser and it jittered left and right.
 	*/
-	// Detents per full turn of the finger around a knob.
-	constexpr float kKnobDetentsPerTurn = 24.0f;
-	// How many times the laser turns while the finger makes one full turn.
-	constexpr float kKnobTurnsPerFingerTurn = 2.0f;
-	// A finger this close to the centre has no meaningful angle to measure.
-	constexpr float kKnobDeadZone = 0.35f;
+	// Horizontal travel, as a fraction of the shorter screen edge, that counts
+	// as one detent. Sliding across the whole screen turns the laser about two
+	// and a half times.
+	constexpr float kKnobDetentFraction = 0.030f;
+	// How far the laser turns per detent, one sixteenth of a revolution.
+	constexpr float kKnobRadiansPerDetent = kPi / 8.0f;
 	// PHAC's SMOOTHING_FACTOR: how much of the queue goes out each frame. The
 	// firmware loops every millisecond while a frame here is roughly 17 ms, so
 	// the divisor is smaller to keep the same feel: half of what is left is sent
@@ -289,12 +288,10 @@ public:
 
 	std::map<int32, Target> fingers;
 
-	// Angle the finger has turned each knob by since it went down, only used
+	// How far the laser has been turned since the finger went down, only used
 	// to draw the needle.
 	float knobAngle[2] = { 0.0f, 0.0f };
-	// Turn that has not reached a whole detent yet, in radians.
-	float knobDetentAccum[2] = { 0.0f, 0.0f };
-	// Mouse movement produced by those detents that has not been sent yet, in
+	// Mouse movement produced by the detents that has not been sent yet, in
 	// game pixels, plus the direction it is heading. QueueKnobPixels() empties
 	// the queue when the player reverses, exactly like PHAC does.
 	float knobPending[2] = { 0.0f, 0.0f };
@@ -490,68 +487,52 @@ public:
 	}
 
 	/*
-		Quantises the angle the finger has swept around the knob into detents,
-		the way an EC11 encoder produces one click per mechanical step, and
-		queues the mouse movement each of them is worth.
+		Turns the horizontal travel of the drag into detents, the way an EC11
+		encoder produces one click per mechanical step, and queues the mouse
+		movement each of them is worth.
+
+		The count is measured from where the finger went down instead of being
+		accumulated sample by sample, so a thumb that wobbles on the glass can
+		never make the total drift away from the finger.
 	*/
 	void TurnKnob(int index, Target& target, const Vector2& pos)
 	{
-		const Vector2 centre = layout.knobPos[index];
-		const Vector2 rel = pos - centre;
-		const float radius = std::sqrt(rel.x * rel.x + rel.y * rel.y);
-		/*
-			Right on top of the centre the angle is meaningless and swings wildly
-			with every pixel, so the gesture only starts once the finger has left
-			the dead zone. Until then the needle simply does not move.
-		*/
-		if(radius < layout.knobRadius * kKnobDeadZone)
+		const float unit = std::fmin(resolution.x, resolution.y);
+		const float detentTravel = kKnobDetentFraction * unit;
+		if(detentTravel <= 0.0f)
 			return;
 
-		// 0 radians points up and grows clockwise, which is how a knob reads.
-		const float angle = std::atan2(rel.x, -rel.y);
-		if(!target.knobTracking)
-		{
-			target.knobTracking = true;
-			target.knobLastAngle = angle;
-			return;
-		}
-
 		/*
-			Only the change since the last sample is used, and it is wrapped into
-			(-pi, pi] so crossing the top of the circle cannot be mistaken for a
-			half turn backwards.
+			Only the horizontal travel counts. A knob is turned left and right, and
+			it is the vertical component that used to be added to it and made the
+			laser jump.
 		*/
-		float delta = angle - target.knobLastAngle;
-		while(delta > kPi)
-			delta -= 2.0f * kPi;
-		while(delta < -kPi)
-			delta += 2.0f * kPi;
-		target.knobLastAngle = angle;
+		const float travel = pos.x - target.dragOrigin.x;
+		const int total = (int)(travel / detentTravel);
+		const int previous = target.knobDetents;
+		if(total == previous)
+			return;
 
-		knobAngle[index] += delta;
-		knobDetentAccum[index] += delta;
+		const int direction = (total > previous) ? 1 : -1;
+		const int steps = (total > previous) ? (total - previous) : (previous - total);
+		target.knobDetents = total;
+
+		// The needle follows the laser, so it moves one detent per click.
+		knobAngle[index] += (float)direction * kKnobRadiansPerDetent * (float)steps;
 		knobActivity[index] = 1.0f;
 
-		const float detent = (2.0f * kPi) / kKnobDetentsPerTurn;
-		while(std::fabs(knobDetentAccum[index]) >= detent)
-		{
-			const float direction = (knobDetentAccum[index] > 0.0f) ? 1.0f : -1.0f;
-			knobDetentAccum[index] -= direction * detent;
-			QueueKnobDetents(index, direction);
-		}
+		for(int i = 0; i < steps; i++)
+			QueueKnobDetents(index, (float)direction);
 	}
 
-	// Queues the mouse pixels one detent is worth, dropping whatever is still
-	// queued the moment the player turns the other way.
+	// Queues the mouse pixels one detent is worth.
 	void QueueKnobDetents(int index, float direction)
 	{
 		const float radiansPerPixel = MouseRadiansPerPixel();
 		if(radiansPerPixel <= 0.0f)
 			return;
 
-		const float radiansPerDetent =
-			(kKnobTurnsPerFingerTurn * 2.0f * kPi) / kKnobDetentsPerTurn;
-		QueueKnobPixels(index, (radiansPerDetent / radiansPerPixel) * direction);
+		QueueKnobPixels(index, (kKnobRadiansPerDetent / radiansPerPixel) * direction);
 	}
 
 	void QueueKnobPixels(int index, float pixels)
@@ -647,7 +628,6 @@ public:
 			const int index = (target.kind == TargetKind::KnobLeft) ? 0 : 1;
 			knobActivity[index] = 1.0f;
 			knobAngle[index] = 0.0f;
-			knobDetentAccum[index] = 0.0f;
 			/*
 				Whatever the previous gesture had queued belongs to a turn the
 				player has already finished, so it is dropped here: a fresh press
@@ -843,7 +823,6 @@ public:
 		fingers.clear();
 		mousePassthroughDown = false;
 		knobAngle[0] = knobAngle[1] = 0.0f;
-		knobDetentAccum[0] = knobDetentAccum[1] = 0.0f;
 		knobPending[0] = knobPending[1] = 0.0f;
 		knobPendingDir[0] = knobPendingDir[1] = 0;
 		for(int i = 0; i < 2; i++)
@@ -882,8 +861,8 @@ void iOSTouchControls_Impl::Render()
 		return;
 	}
 
-	// Knobs. The needle shows how far the finger has turned them, which is the
-	// only feedback an endless encoder can give.
+	// Knobs. They are turned by sliding the finger sideways, so the chevrons
+	// hint at the gesture and the needle shows how far the laser has turned.
 	for(int i = 0; i < 2; i++)
 	{
 		const float alpha = ActivityAlpha(knobActivity[i]);
@@ -901,6 +880,22 @@ void iOSTouchControls_Impl::Render()
 		nvgStrokeWidth(vg, r * 0.09f);
 		nvgStroke(vg);
 
+		// Left and right chevrons: slide me sideways.
+		for(int side = 0; side < 2; side++)
+		{
+			const float sign = (side == 0) ? -1.0f : 1.0f;
+			const float tipX = p.x + sign * r * 0.80f;
+			const float backX = p.x + sign * r * 0.50f;
+			nvgBeginPath(vg);
+			nvgMoveTo(vg, tipX, p.y);
+			nvgLineTo(vg, backX, p.y - r * 0.24f);
+			nvgMoveTo(vg, tipX, p.y);
+			nvgLineTo(vg, backX, p.y + r * 0.24f);
+			nvgStrokeColor(vg, nvgRGBAf(0.70f, 0.92f, 1.0f, alpha * 0.85f));
+			nvgStrokeWidth(vg, r * 0.09f);
+			nvgStroke(vg);
+		}
+
 		nvgBeginPath(vg);
 		nvgCircle(vg, p.x, p.y, r * 0.13f);
 		nvgFillColor(vg, nvgRGBAf(0.45f, 0.85f, 1.0f, alpha));
@@ -908,8 +903,8 @@ void iOSTouchControls_Impl::Render()
 
 		nvgBeginPath(vg);
 		nvgMoveTo(vg, p.x, p.y);
-		nvgLineTo(vg, p.x + std::sin(knobAngle[i]) * r * 0.70f,
-					  p.y - std::cos(knobAngle[i]) * r * 0.70f);
+		nvgLineTo(vg, p.x + std::sin(knobAngle[i]) * r * 0.42f,
+					  p.y - std::cos(knobAngle[i]) * r * 0.42f);
 		nvgStrokeColor(vg, nvgRGBAf(0.75f, 0.95f, 1.0f, alpha));
 		nvgStrokeWidth(vg, r * 0.10f);
 		nvgStroke(vg);
